@@ -11,7 +11,17 @@ export interface SpeechEngine { readonly supported: boolean; start(lang: string)
 const Ctor: any = typeof window !== 'undefined' ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition : undefined
 export const normalize = (s: string) => s.trim().replace(/\s+/g, ' ')
 
-export function createWebSpeechEngine(h: SpeechHandlers): SpeechEngine {
+const low = (x: string) => x.toLowerCase().replace(/[.,!?;:¿¡]/g, '').replace(/\s+/g, ' ').trim()
+// Remove do início de `t` o que já foi confirmado em `prev` (o Chrome Android repete texto acumulado).
+export function stripRepeat(prev: string, t: string): string {
+  const a = low(t), b = low(prev)
+  if (!b) return t
+  if (!a || a === b || b.endsWith(' ' + a)) return ''
+  if (a.startsWith(b + ' ')) return t.split(' ').slice(b.split(' ').length).join(' ')
+  return t
+}
+
+export function createWebSpeechEngine(h: SpeechHandlers, getDedupe: () => boolean = () => true): SpeechEngine {
   let rec: any = null, wanted = false, active = false, lang = 'pt-PT'
   let lastFinal = '', lastFinalAt = 0, lastEvent = 0, startedAt = 0, fails = 0
   let timer: number | undefined, dog: number | undefined
@@ -33,11 +43,12 @@ export function createWebSpeechEngine(h: SpeechHandlers): SpeechEngine {
       lastEvent = Date.now(); fails = 0
       let interim = ''
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        const res = ev.results[i], t = normalize(res[0].transcript)
+        const res = ev.results[i], t = normalize(res[0].transcript), now = Date.now()
+        const recent = getDedupe() && lastFinal && now - lastFinalAt < 4000
+        const out = recent ? stripRepeat(lastFinal, t) : t
         if (res.isFinal) {
-          const now = Date.now()
-          if (t && !(t === lastFinal && now - lastFinalAt < 2500)) { lastFinal = t; lastFinalAt = now; h.onFinal(t) }
-        } else interim += (interim ? ' ' : '') + t
+          if (out && !(out === lastFinal && now - lastFinalAt < 2500)) { lastFinal = t; lastFinalAt = now; h.onFinal(out) }
+        } else if (out) interim += (interim ? ' ' : '') + out
       }
       h.onInterim(interim)
     }

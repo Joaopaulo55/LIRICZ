@@ -54,7 +54,7 @@ export default function App() {
       },
       onError: (k, d) => setError(k === 'other' ? d || errorText.other : errorText[k]),
       onStateChange: setListening,
-    })
+    }, () => sRef.current.dedupe)
     engine.current = eng
     return () => eng.dispose()
   }, [])

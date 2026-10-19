@@ -80,6 +80,7 @@ export function Customize({ s, up, setS }: { s: Settings; up: Up; setS: (s: Sett
           <label className="field"><span>Idioma de reconhecimento</span><select value={s.lang} onChange={(e) => up({ lang: e.target.value })}><option value="pt-PT">Português (Portugal)</option><option value="pt-BR">Português (Brasil)</option></select>
             <small>Não existe opção para português de Angola nos motores do navegador.</small></label>
           {R('Frases guardadas no ecrã', 'historyLimit', 5, 60)}
+          <Check checked={s.dedupe} onChange={(v) => up({ dedupe: v })}>Evitar palavras repetidas (recomendado no Android)</Check>
           <Check checked={s.keepAwake} onChange={(v) => up({ keepAwake: v })}>Manter o ecrã ligado ao ouvir</Check>
         </>}
 

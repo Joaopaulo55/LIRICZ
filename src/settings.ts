@@ -7,7 +7,7 @@ export interface Settings {
   uiHidden: boolean; keepAwake: boolean
   emojiOn: boolean; signsOn: boolean; emojiRules: Record<string, string>
   captionMode: 'live' | 'cinema'; anim: string; animSpeed: number; fadeOutSec: number
-  aiFix: boolean; aiTts: boolean; aiVoice: string; geminiKey: string
+  dedupe: boolean; aiFix: boolean; aiTts: boolean; aiVoice: string; geminiKey: string
 }
 
 export const ANIMS = [
@@ -33,7 +33,7 @@ export const DEFAULTS: Settings = {
   uiHidden: false, keepAwake: true,
   emojiOn: false, signsOn: true, emojiRules: DEFAULT_EMOJI,
   captionMode: 'live', anim: 'suave', animSpeed: 1.3, fadeOutSec: 0,
-  aiFix: false, aiTts: false, aiVoice: 'Kore', geminiKey: '',
+  dedupe: true, aiFix: false, aiTts: false, aiVoice: 'Kore', geminiKey: '',
 }
 
 export const PROFILES: Record<string, Partial<Settings>> = {
