@@ -48,7 +48,7 @@ Variáveis de ambiente no Vercel (todas opcionais; sem elas a IA fica indisponí
 | Nome | Tipo | Para quê |
 |---|---|---|
 | `GEMINI_API_KEY` | **secret** | Chave Gemini usada pela função `api/gemini.ts` (nunca vai para o navegador) |
-| `GEMINI_TEXT_MODEL` | config | Padrão `gemini-3.1-flash-lite` |
+| `GEMINI_TEXT_MODEL` | config | `gemini-3.8-flash` (já é o padrão no código) |
 | `GEMINI_TTS_MODEL` | config | Padrão `gemini-3.1-flash-tts-preview` |
 Os modelos Gemini mudam depressa: se a Google retirar um, muda só estas duas variáveis.
 IA e voz IA vêm desligadas; o utilizador liga em Personalizar → IA / Voz. O utilizador pode também colar a sua própria chave (fica só no aparelho).

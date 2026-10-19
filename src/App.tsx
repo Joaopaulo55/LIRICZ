@@ -8,6 +8,7 @@ import { transcript } from './transcript'
 import { Write } from './Write'
 import { Customize } from './Customize'
 import { Icon, P } from './icons'
+import { Splash } from './Splash'
 
 type Tab = 'conversa' | 'escrever' | 'personalizar'
 const errorText: Record<SpeechError, string> = {
@@ -29,6 +30,8 @@ export default function App() {
   const [bigMsg, setBigMsg] = useState('')
   const [note, setNote] = useState('')
   const [hidden, setHidden] = useState(false)
+  const [splash, setSplash] = useState(() => !sessionStorage.getItem('liricz.splash'))
+  const doneSplash = useCallback(() => { sessionStorage.setItem('liricz.splash', '1'); setSplash(false) }, [])
   const engine = useRef<SpeechEngine | null>(null)
   const wake = useRef<any>(null)
   const sRef = useRef(s); sRef.current = s
@@ -98,6 +101,7 @@ export default function App() {
 
   return (
     <div className={`app a-${s.anim}`} style={style}>
+      {splash && <Splash onDone={doneSplash} />}
       {!hidden && (
         <header className="top">
           <span className="logo">LIRICz</span>

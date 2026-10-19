@@ -100,7 +100,7 @@ export function Customize({ s, up, setS }: { s: Settings; up: Up; setS: (s: Sett
 
         {sec === 'IA' && <>
           <Check checked={s.aiFix} onChange={(v) => up({ aiFix: v })}>Melhorar legendas com Gemini (pontuação e erros)</Check>
-          <p className="hint-l">Desligado por defeito. Quando ligado, cada frase já confirmada é enviada em texto (sem áudio) ao Google Gemini e corrigida em segundos. As legendas aparecem primeiro, sem esperar pela IA. Na camada gratuita da Google, o conteúdo pode ser usado para melhorar os produtos da Google.</p>
+          <p className="hint-l">Desligado por defeito. Quando ligado, cada frase já confirmada é enviada em texto (sem áudio) ao Google Gemini e corrigida em segundos. As legendas aparecem primeiro, sem esperar pela IA. Conforme o plano da chave usada, a Google pode usar o conteúdo enviado para melhorar os seus produtos.</p>
           <label className="field"><span>A tua chave Gemini (opcional)</span><input type="password" value={s.geminiKey} onChange={(e) => up({ geminiKey: e.target.value.trim() })} placeholder="Deixa vazio para usar a do servidor" autoComplete="off" />
             <small>A chave fica só neste aparelho e é enviada apenas à função do teu site.</small></label>
           <button className="btn ghost" onClick={async () => { setMsg('A testar…'); try { setMsg('Resultado: ' + (await aiFix('ola zelina como é que estas', s.geminiKey) ?? 'resposta rejeitada')) } catch (e) { setMsg('Falhou: ' + (e as Error).message) } }}>Testar IA</button>

@@ -1,5 +1,5 @@
 // Função serverless do Vercel. A chave GEMINI_API_KEY fica só no servidor (secret).
-const TEXT = process.env.GEMINI_TEXT_MODEL || 'gemini-3.1-flash-lite'
+const TEXT = process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash'
 const TTS = process.env.GEMINI_TTS_MODEL || 'gemini-3.1-flash-tts-preview'
 const VOICES = ['Kore', 'Puck', 'Charon', 'Aoede', 'Zephyr', 'Fenrir']
 const SYS = 'És um corretor de legendas em português. Recebes uma frase transcrita por voz. Corrige pontuação, maiúsculas e erros evidentes de reconhecimento. Não acrescentes, não resumas, não traduzas e não respondas à frase. Devolve apenas a frase corrigida.'
@@ -18,7 +18,9 @@ export async function POST(req: Request) {
   const call = (model: string, body: unknown) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body) })
   try {
     if (mode === 'fix') {
-      const r = await call(TEXT, { systemInstruction: { parts: [{ text: SYS }] }, contents: [{ role: 'user', parts: [{ text }] }], generationConfig: { temperature: 0, maxOutputTokens: 300 } })
+      const body = (think: boolean) => ({ systemInstruction: { parts: [{ text: SYS }] }, contents: [{ role: 'user', parts: [{ text }] }], generationConfig: { temperature: 0, maxOutputTokens: 1024, ...(think ? { thinkingConfig: { thinkingLevel: 'low' } } : {}) } })
+      let r = await call(TEXT, body(true))
+      if (r.status === 400) r = await call(TEXT, body(false)) // se o parâmetro de raciocínio não for aceite
       if (!r.ok) return json({ error: `Gemini ${r.status}` }, 502)
       const d: any = await r.json()
       return json({ text: d.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '' })
