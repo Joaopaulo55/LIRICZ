@@ -58,7 +58,7 @@ export function createWebSpeechEngine(h: SpeechHandlers): SpeechEngine {
       h.onInterim('')
       if (wanted) {
         // O Chrome termina sessões contínuas por conta própria; reinicia sem sessões em paralelo.
-        restartTimer = window.setTimeout(() => { if (wanted) { try { rec = build(); rec.start() } catch { wanted = false; h.onStateChange(false) } } }, 250)
+        restartTimer = window.setTimeout(() => { if (wanted) { try { rec.start() } catch { try { rec = build(); rec.start() } catch { wanted = false; h.onStateChange(false) } } } }, 60)
       } else h.onStateChange(false)
     }
     return r

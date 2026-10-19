@@ -38,3 +38,7 @@ Nenhum áudio ou texto é guardado ou enviado pelo LIRICz. O áudio vai ao servi
 - Sem Internet não há transcrição.
 - Não existe motor com pt-AO; só pt-PT e pt-BR.
 - Não foi possível executar `npm install`/build no ambiente onde o projeto foi escrito (sem rede): faz `npm run build` antes do deploy.
+
+## Emojis e sinais (v0.2)
+- Emojis: substituição só na apresentação (o texto original não é alterado), palavras completas, sem acentos/maiúsculas. Editável em Personalizar.
+- Sinais: mostram-se imagens de `public/signs/` quando a palavra falada está em `manifest.json` com `validatedBy`. O projeto NÃO inclui imagens; ver `public/signs/README.md`.

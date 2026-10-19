@@ -1,9 +1,11 @@
+import { DEFAULT_EMOJI } from './emoji'
 export interface Settings {
   fontSize: number; fontFamily: string; fontWeight: number
   textColor: string; bgColor: string; interimColor: string
   lineHeight: number; letterSpacing: number; align: 'left' | 'center'
   historyLimit: number; lang: string; speakRate: number; speakPitch: number; voiceURI: string
   uiHidden: boolean; keepAwake: boolean
+  emojiOn: boolean; signsOn: boolean; emojiRules: Record<string, string>
 }
 
 export const FONTS: Record<string, string> = {
@@ -21,6 +23,7 @@ export const DEFAULTS: Settings = {
   lineHeight: 1.25, letterSpacing: 0, align: 'left',
   historyLimit: 6, lang: 'pt-PT', speakRate: 1, speakPitch: 1, voiceURI: '',
   uiHidden: false, keepAwake: true,
+  emojiOn: true, signsOn: true, emojiRules: DEFAULT_EMOJI,
 }
 
 export const PROFILES: Record<string, Partial<Settings>> = {

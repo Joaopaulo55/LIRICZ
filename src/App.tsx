@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createWebSpeechEngine, SpeechEngine, SpeechError } from './speech'
+import { Captions, Words } from './Captions'
+import { transcript } from './transcript'
+import { DEFAULT_EMOJI, norm } from './emoji'
 import { speak, stopSpeaking, listVoices, ttsSupported } from './tts'
 import {
   Settings, DEFAULTS, FONTS, PROFILES, loadSettings, saveSettings, loadCustomProfiles, saveCustomProfiles,
@@ -39,8 +42,6 @@ export default function App() {
   const [consent, setConsent] = useState(() => localStorage.getItem('liricz.consent') === '1')
   const [showConsent, setShowConsent] = useState(false)
 
-  const [finals, setFinals] = useState<string[]>([])
-  const [interim, setInterim] = useState('')
   const [listening, setListening] = useState(false)
   const [error, setError] = useState('')
   const [bigMsg, setBigMsg] = useState('')
@@ -61,8 +62,8 @@ export default function App() {
   // Um único motor para toda a sessão da aplicação.
   useEffect(() => {
     const eng = createWebSpeechEngine({
-      onInterim: setInterim,
-      onFinal: (t) => setFinals((f) => [...f, t].slice(-200)),
+      onInterim: transcript.interim,
+      onFinal: transcript.final,
       onError: (k, d) => setError(`${errorText[k]}${k === 'other' ? ` (${d})` : ''}`),
       onStateChange: setListening,
     })
@@ -104,7 +105,7 @@ export default function App() {
       const t = e.target as HTMLElement
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || tab !== 'conversa') return
       if (e.code === 'Space') { e.preventDefault(); toggleMic() }
-      if (e.ctrlKey && e.key.toLowerCase() === 'l') { e.preventDefault(); setFinals([]); setInterim('') }
+      if (e.ctrlKey && e.key.toLowerCase() === 'l') { e.preventDefault(); transcript.clear() }
     }
     window.addEventListener('keydown', k)
     return () => window.removeEventListener('keydown', k)
@@ -120,8 +121,6 @@ export default function App() {
     '--tc': s.textColor, '--bg': s.bgColor, '--ic': s.interimColor, '--lh': s.lineHeight,
     '--ls': `${s.letterSpacing}px`, '--al': s.align,
   } as React.CSSProperties
-
-  const shown = finals.slice(-s.historyLimit)
 
   return (
     <div className="app" style={style}>
@@ -140,16 +139,10 @@ export default function App() {
         {tab === 'conversa' && (
           <section className="read">
             {error && <p className="err" role="alert">{error}</p>}
-            <div className="captions" aria-live="polite">
-              {shown.length === 0 && !interim && <p className="hint">{listening ? 'A ouvir… fala normalmente.' : 'Toca no microfone e fala. As palavras aparecem aqui.'}</p>}
-              {shown.map((t, i) => (
-                <p key={finals.length - shown.length + i} className="seg">{t}</p>
-              ))}
-              {interim && <p className="seg interim">{interim}</p>}
-            </div>
+            <Captions s={s} listening={listening} />
             {!chromeHidden && (
               <div className="actions">
-                <button className="icon" onClick={() => { setFinals([]); setInterim('') }} aria-label="Limpar texto"><Icon d={P.trash} /></button>
+                <button className="icon" onClick={() => { transcript.clear() }} aria-label="Limpar texto"><Icon d={P.trash} /></button>
                 <button className={`mic ${listening ? 'on' : ''}`} onClick={(e) => { e.stopPropagation(); toggleMic() }} aria-label={listening ? 'Parar microfone' : 'Iniciar microfone'}>
                   <Icon d={listening ? P.stop : P.mic} size={36} />
                 </button>
@@ -166,7 +159,7 @@ export default function App() {
 
       {bigMsg && (
         <div className="big" style={style} onClick={() => { setBigMsg(''); stopSpeaking() }}>
-          <p>{bigMsg}</p>
+          <p><span><Words text={bigMsg} on={s.emojiOn} rules={s.emojiRules} /></span></p>
           <div className="bigbar">
             {ttsSupported && <button className="btn" onClick={(e) => { e.stopPropagation(); speak(bigMsg, s.speakRate, s.speakPitch, s.voiceURI) }}><Icon d={P.speaker} /> Ler em voz alta</button>}
             <button className="btn ghost" onClick={() => { setBigMsg(''); stopSpeaking() }}><Icon d={P.x} /> Fechar</button>
@@ -245,6 +238,8 @@ function Customize({ s, update, setS }: { s: Settings; update: (p: Partial<Setti
     speechSynthesis.addEventListener('voiceschanged', f)
     return () => speechSynthesis.removeEventListener('voiceschanged', f)
   }, [])
+  const [nw, setNw] = useState('')
+  const [ne, setNe] = useState('')
   const allProfiles = useMemo(() => ({ ...PROFILES, ...custom }), [custom])
   const apply = (p: Partial<Settings>) => setS({ ...s, ...p })
   const saveProfile = () => {
@@ -313,6 +308,21 @@ function Customize({ s, update, setS }: { s: Settings; update: (p: Partial<Setti
         <Range label="Tom" k="speakPitch" min={0.5} max={2} step={0.1} />
         <button className="btn ghost" onClick={() => speak('Olá, esta é a minha voz.', s.speakRate, s.speakPitch, s.voiceURI)}>Testar voz</button>
       </>) : <p className="hint">Este dispositivo não tem síntese de voz.</p>}
+
+      <h3>Emojis e sinais</h3>
+      <label className="check"><input type="checkbox" checked={s.emojiOn} onChange={(e) => update({ emojiOn: e.target.checked })} /> Mostrar emoji no lugar da palavra</label>
+      <label className="check"><input type="checkbox" checked={s.signsOn} onChange={(e) => update({ signsOn: e.target.checked })} /> Mostrar imagem do sinal (só os validados)</label>
+      <div className="row wrap rules">
+        {Object.entries(s.emojiRules).map(([w, e]) => (
+          <button key={w} className="chip" aria-label={`Apagar regra ${w}`} onClick={() => { const r = { ...s.emojiRules }; delete r[w]; update({ emojiRules: r }) }}>{e} {w} ×</button>
+        ))}
+      </div>
+      <div className="row">
+        <input value={nw} onChange={(e) => setNw(e.target.value)} placeholder="Palavra" />
+        <input value={ne} onChange={(e) => setNe(e.target.value)} placeholder="Emoji" style={{ maxWidth: 110 }} />
+        <button className="btn ghost" disabled={!norm(nw) || !ne.trim()} onClick={() => { update({ emojiRules: { ...s.emojiRules, [norm(nw)]: ne.trim() } }); setNw(''); setNe('') }}>Adicionar</button>
+      </div>
+      <button className="btn ghost" onClick={() => update({ emojiRules: DEFAULT_EMOJI })}>Repor emojis</button>
 
       <h3>Dados</h3>
       <div className="row">
