@@ -16,11 +16,14 @@ export const transcript = {
     else { live = ++nid; items = [...items, { id: live, text, final: false }] }
     emit()
   },
-  final(text: string) {
-    if (live >= 0) { items = items.map((i) => (i.id === live ? { ...i, text, final: true } : i)); live = -1 }
-    else items = [...items, { id: ++nid, text, final: true }]
+  final(text: string): number {
+    let id: number
+    if (live >= 0) { id = live; items = items.map((i) => (i.id === id ? { ...i, text, final: true } : i)); live = -1 }
+    else { id = ++nid; items = [...items, { id, text, final: true }] }
     items = items.slice(-60)
     emit()
+    return id
   },
+  replace(id: number, text: string) { if (items.some((i) => i.id === id)) { items = items.map((i) => (i.id === id ? { ...i, text } : i)); emit() } },
   clear() { items = []; live = -1; emit() },
 }
