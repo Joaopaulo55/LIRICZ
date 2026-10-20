@@ -145,3 +145,4 @@ h3 { margin: 1.4rem auto .5rem; font-size: 1rem; color: var(--green-dark); }
 @keyframes byIn { from { opacity: 0; transform: translateY(.6em); } to { opacity: 1; transform: none; } }
 @keyframes splashOut { to { opacity: 0; visibility: hidden; } }
 @media (prefers-reduced-motion: reduce) { .splash { animation: splashOut .3s ease .9s both; } .wm span, .wm .z, .by span { animation: none; opacity: 1; } .by { display: none; } }
+.seg .lgp { display: block; font-size: .5em; font-weight: 700; letter-spacing: .06em; opacity: .85; margin-top: .1em; line-height: 1.2; }

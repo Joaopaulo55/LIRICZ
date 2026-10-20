@@ -55,6 +55,7 @@ function Live({ s, listening }: { s: Settings; listening: boolean }) {
           {shown.map((it, idx) => (
             <p key={it.id} className={`seg${it.final ? '' : ' interim'}`} style={{ opacity: pinned ? Math.max(0.35, 1 - (n - 1 - idx) * 0.16) : 1 }}>
               <Words text={it.text} on={s.emojiOn} rules={s.emojiRules} />
+              {it.lgp && <small className="lgp">LGP · {it.lgp.join(' ')}</small>}
             </p>
           ))}
         </div>

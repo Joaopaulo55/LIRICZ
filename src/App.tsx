@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createWebSpeechEngine, SpeechEngine, SpeechError } from './speech'
 import { stopSpeaking, ttsSupported } from './tts'
 import { aiFix, sayText, stopAi } from './ai'
+import { translateLgp, wakeLgp } from './lgp'
 import { Settings, FONTS, loadSettings, saveSettings } from './settings'
 import { Captions, Words } from './Captions'
 import { transcript } from './transcript'
@@ -38,6 +39,7 @@ export default function App() {
 
   const update = useCallback((patch: Partial<Settings>) => setS((p) => ({ ...p, ...patch })), [])
   useEffect(() => saveSettings(s), [s])
+  useEffect(() => { if (s.lgpOn) wakeLgp() }, [s.lgpOn]) // acorda o servidor (Render grátis adormece)
   useEffect(() => {
     const on = () => setOnline(true), off = () => setOnline(false)
     window.addEventListener('online', on); window.addEventListener('offline', off)
@@ -51,6 +53,7 @@ export default function App() {
         const id = transcript.final(t)
         const st = sRef.current
         if (st.aiFix) aiFix(t, st.geminiKey).then((r) => { if (r && r !== t) transcript.replace(id, r) }).catch(() => {})
+        if (st.lgpOn) translateLgp(t).then((r) => { if (r.glosses?.length) transcript.attach(id, r.glosses) }).catch(() => {})
       },
       onError: (k, d) => setError(k === 'other' ? d || errorText.other : errorText[k]),
       onStateChange: setListening,
@@ -69,6 +72,7 @@ export default function App() {
     setError('')
     if (!engine.current?.supported) return setError(errorText.unsupported)
     if (!online) return setError(errorText.network)
+    if (s.lgpOn) wakeLgp()
     engine.current.start(s.lang)
   }
   const toggleMic = () => { if (listening) engine.current?.stop(); else if (!consent) setShowConsent(true); else start() }
@@ -108,6 +112,7 @@ export default function App() {
           <span className={`pill ${online ? 'ok' : 'warn'}`}>{online ? 'Online' : 'Sem Internet'}</span>
           {listening && <span className="pill rec"><i />A ouvir</span>}
           {s.aiFix && <span className="pill ok">IA</span>}
+          {s.lgpOn && <span className="pill ok">LGP</span>}
           <span className="spacer" />
           {tab === 'conversa' && <button className="icon" onClick={() => setHidden(true)} aria-label="Ocultar controlos"><Icon d={P.hide} /></button>}
           <button className="icon" onClick={fullscreen} aria-label="Ecrã inteiro"><Icon d={P.expand} /></button>

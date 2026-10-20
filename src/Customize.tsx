@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Words } from './Captions'
 import { aiFix, sayText } from './ai'
 import { ttsSupported, listVoices } from './tts'
+import { translateLgp } from './lgp'
 import { norm, DEFAULT_EMOJI } from './emoji'
 import { Settings, DEFAULTS, FONTS, PROFILES, ANIMS, loadCustomProfiles, saveCustomProfiles, clearAll } from './settings'
 
 type Up = (p: Partial<Settings>) => void
-const SECTIONS = ['Letra', 'Cores', 'Animação', 'Conversa', 'Voz', 'IA', 'Emojis', 'Dados'] as const
+const SECTIONS = ['Letra', 'Cores', 'Animação', 'Conversa', 'Voz', 'IA', 'LGP', 'Emojis', 'Dados'] as const
 
 // Fora do componente principal: assim o slider não é recriado a cada movimento (arrastar fica fluido).
 function Range({ s, up, label, k, min, max, step = 1 }: { s: Settings; up: Up; label: string; k: keyof Settings; min: number; max: number; step?: number }) {
@@ -105,6 +106,16 @@ export function Customize({ s, up, setS }: { s: Settings; up: Up; setS: (s: Sett
           <label className="field"><span>A tua chave Gemini (opcional)</span><input type="password" value={s.geminiKey} onChange={(e) => up({ geminiKey: e.target.value.trim() })} placeholder="Deixa vazio para usar a do servidor" autoComplete="off" />
             <small>A chave fica só neste aparelho e é enviada apenas à função do teu site.</small></label>
           <button className="btn ghost" onClick={async () => { setMsg('A testar…'); try { setMsg('Resultado: ' + (await aiFix('ola zelina como é que estas', s.geminiKey) ?? 'resposta rejeitada')) } catch (e) { setMsg('Falhou: ' + (e as Error).message) } }}>Testar IA</button>
+          {msg && <p className="hint-l">{msg}</p>}
+        </>}
+
+        {sec === 'LGP' && <>
+          <Check checked={s.lgpOn} onChange={(v) => {
+            if (!v) return up({ lgpOn: false })
+            if (confirm('Ligar a tradução para glosas de LGP?\n\n• O texto de cada frase confirmada (sem áudio) é enviado ao servidor do LIRICz para ser convertido.\n• É Língua Gestual Portuguesa (Portugal), não Língua Gestual Angolana.\n• Aparece por baixo das legendas no modo "Ao vivo".')) up({ lgpOn: true })
+          }}>Mostrar a frase em glosas de LGP (Língua Gestual Portuguesa)</Check>
+          <p className="hint-l">Desligado por defeito. Glosas são a frase escrita na ordem e nas palavras da LGP, em maiúsculas; não são vídeos nem sinais animados. É uma tradução automática de português europeu para LGP de Portugal e pode não corresponder à Língua Gestual Angolana. O servidor gratuito adormece quando está parado: a primeira frase pode demorar cerca de um minuto.</p>
+          <button className="btn ghost" onClick={async () => { setMsg('A testar… (se o servidor estiver a dormir, pode demorar até 1 minuto)'); try { const r = await translateLgp('Qual é o teu nome?'); setMsg('Resultado: ' + r.glosses.join(' ')) } catch (e) { setMsg('Falhou: ' + (e as Error).message) } }}>Testar LGP</button>
           {msg && <p className="hint-l">{msg}</p>}
         </>}
 
