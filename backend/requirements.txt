@@ -5,6 +5,10 @@ fastapi==0.110.3
 uvicorn==0.29.0
 numpy==1.21.6
 spacy==2.3.2
+# versões com wheel pré-compilada para Python 3.8 (as mais recentes só vêm em código-fonte)
+cymem==2.0.8
+murmurhash==1.0.10
+preshed==3.0.9
 nltk==3.8.1
 phonemizer==2.2.1
 unidecode

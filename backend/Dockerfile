@@ -17,6 +17,7 @@ RUN curl -fL "https://github.com/TALP-UPC/FreeLing/releases/download/${FREELING_
  && rm -rf /tmp/fl.tgz /tmp/FreeLing-*
 
 # ---------- 2) imagem final ----------
+# build-essential/python3-dev ficam: se alguma dependência do spaCy 2.3 não tiver wheel para Python 3.8, o pip compila-a.
 FROM ubuntu:20.04
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 \
     LD_LIBRARY_PATH=/usr/local/lib \
@@ -25,7 +26,7 @@ ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 \
     NLTK_DATA=/usr/local/share/nltk_data \
     OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MALLOC_ARENA_MAX=2
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip espeak-ng ca-certificates \
+    python3 python3-pip python3-dev build-essential espeak-ng ca-certificates \
     libboost-system1.71.0 libboost-filesystem1.71.0 libboost-regex1.71.0 \
     libboost-program-options1.71.0 libboost-thread1.71.0 libboost-iostreams1.71.0 \
     libicu66 zlib1g libgomp1 && rm -rf /var/lib/apt/lists/*
