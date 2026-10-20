@@ -34,6 +34,16 @@ _ctx: dict = {}
 warnings: list[str] = []  # mostrado em /health
 
 
+def _log(msg: str) -> None:
+    """Escreve nos logs do Render a memória usada em cada fase do arranque (para achar onde rebenta os 512 MB)."""
+    try:
+        with open("/proc/self/status") as f:
+            rss = next(int(l.split()[1]) for l in f if l.startswith("VmRSS:")) // 1024
+    except Exception:
+        rss = -1
+    print(f"[lgp] {msg} | RSS={rss} MB", file=sys.stderr, flush=True)
+
+
 class TranslationError(Exception):
     """O PE2LGP não conseguiu traduzir esta frase (palavra fora do dicionário, estrutura sem regra, ...)."""
 
@@ -78,7 +88,9 @@ def load() -> None:
                 f"Falta {p.relative_to(ROOT.parent)}. Copia Modulo_tradutor/ e Modulo_construcao_regras/ "
                 "do PE2LGP para backend/pe2lgp/ (ver backend/README.md)."
             )
+    _log("início do carregamento")
     _find_pyfreeling()
+    _log("pyfreeling importado")
 
     # caminhos absolutos (o PE2LGP acrescenta '../Modulo_construcao_regras', que só resolve com cwd certo)
     if str(TRAD) not in sys.path:
@@ -91,10 +103,13 @@ def load() -> None:
     import spacy
 
     spacy.load(SPACY_MODEL)  # falha cedo e com mensagem clara se o modelo não estiver instalado
+    _log("spaCy carregado")
 
     import tradutor  # noqa: E402  (módulo do PE2LGP)
 
+    _log("módulo tradutor importado")
     result = tradutor.tradutor_main()
+    _log("FreeLing + dicionário carregados")
     if not result:
         raise RuntimeError("tradutor_main() não devolveu os modelos do PE2LGP.")
     model, palavras_glosas, freq_dic, negativa_irregular, gestos_compostos = result
@@ -118,6 +133,7 @@ def load() -> None:
     # Aquecimento: carrega o que falta (NLTK, regras). Um falhanço aqui não impede o serviço.
     try:
         _run("Bom dia.")
+        _log("frase de aquecimento OK")
     except Exception as e:  # noqa: BLE001
         warnings.append(f"Frase de aquecimento falhou ({type(e).__name__}): {e}")
 
