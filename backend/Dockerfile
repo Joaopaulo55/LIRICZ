@@ -51,6 +51,11 @@ RUN test -f pe2lgp/Modulo_tradutor/tradutor.py && test -f pe2lgp/Modulo_construc
  || { echo "Copia Modulo_tradutor/ e Modulo_construcao_regras/ do PE2LGP para backend/pe2lgp/"; exit 1; }
 COPY app.py pe2lgp_adapter.py ./
 
+# O FreeLing exige o locale en_US.UTF-8 (sem ele aborta com "Locale name 'en_US.UTF-8' is unknown").
+RUN apt-get update && apt-get install -y --no-install-recommends locales \
+ && locale-gen en_US.UTF-8 && rm -rf /var/lib/apt/lists/*
+ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+
 RUN useradd -r -u 10001 app
 USER app
 CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1 --no-access-log"]
