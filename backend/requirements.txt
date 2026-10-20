@@ -1,0 +1,4 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+spacy>=3.7
+# Junta aqui as dependências do requirements.txt do PE2LGP (ou copia-o para backend/pe2lgp/).
