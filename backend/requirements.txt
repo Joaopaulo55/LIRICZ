@@ -1,4 +1,10 @@
-fastapi>=0.110
-uvicorn[standard]>=0.29
-spacy>=3.7
-# Junta aqui as dependências do requirements.txt do PE2LGP (ou copia-o para backend/pe2lgp/).
+# Python 3.8 (Ubuntu 20.04): o PE2LGP foi escrito para spaCy 2.3.x, que não tem wheels para 3.10+.
+# Só o que o tradutor realmente importa (gensim, matplotlib, pyjarowinkler, pandas e aiohttp
+# do requirements.txt do PE2LGP servem para construir regras ou para o server.py antigo: ficam de fora).
+fastapi==0.110.3
+uvicorn==0.29.0
+numpy==1.21.6
+spacy==2.3.2
+nltk==3.8.1
+phonemizer==2.2.1
+unidecode

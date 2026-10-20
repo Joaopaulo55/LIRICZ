@@ -1,0 +1,33 @@
+{
+  "gestos_compostos":
+    {
+      "BASQUETEBOL": [
+      "BASQUETEBOL1",
+      "BASQUETEBOL2"
+      ],
+      "ZEBRA": [
+        "CAVALO",
+        "RISCAS"
+      ],
+      "MELANCIA": [
+        "VERMELHO",
+        "MELÃO"
+      ],
+      "AFILHADO": [
+        "PADRINHO",
+        "FILHO"
+      ],
+      "PROFISSÃO": [
+        "TRABALHO",
+        "PROFISSÃO"
+      ],
+      "URSO": [
+        "FOCINHO1",
+        "URSO2"
+      ],
+      "RAINHA": [
+        "MULHER",
+        "REI"
+      ]
+    }
+}

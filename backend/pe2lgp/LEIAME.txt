@@ -1,1 +1,6 @@
-Coloca aqui o código do PE2LGP (pastas Modulo_tradutor, etc.).
+Copia para aqui, do repositório PE2LGP (PE2LGP-Translator-main/PE2LGP/), SÓ estas duas pastas, sem alterar nada:
+
+  backend/pe2lgp/Modulo_tradutor/
+  backend/pe2lgp/Modulo_construcao_regras/
+
+Não copies Teses/, Avaliacao/ nem o requirements.txt do PE2LGP (traz gensim/matplotlib que o tradutor não usa).

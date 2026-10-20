@@ -1,0 +1,4 @@
+**/__pycache__
+**/*.pyc
+**/error_log.csv
+**/*.md
