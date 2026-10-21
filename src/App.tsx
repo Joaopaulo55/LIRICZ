@@ -5,6 +5,7 @@ import { aiFix, sayText, stopAi } from './ai'
 import { translateLgp, wakeLgp } from './lgp'
 import { Settings, FONTS, loadSettings, saveSettings } from './settings'
 import { Captions, Words } from './Captions'
+import { LgpStage } from './LgpStage'
 import { transcript } from './transcript'
 import { Write } from './Write'
 import { Customize } from './Customize'
@@ -120,13 +121,13 @@ export default function App() {
       )}
 
       <main className="main" onClick={() => hidden && setHidden(false)}>
-        {tab === 'conversa' && (
-          <section className="read">
-            {error && <p className="err" role="alert">{error}</p>}
-            <Captions s={s} listening={listening} />
-            {!hidden && <button className="clear" onClick={() => transcript.clear()} aria-label="Limpar texto"><Icon d={P.trash} size={20} /></button>}
-          </section>
-        )}
+        {/* Fica sempre montado (só escondido): o avatar não pode ser recriado ao mudar de separador. */}
+        <section className="read" hidden={tab !== 'conversa'}>
+          {error && <p className="err" role="alert">{error}</p>}
+          <LgpStage active={s.lgpOn && tab === 'conversa'} listening={listening} withCaps={s.lgpCaptions} />
+          {(!s.lgpOn || s.lgpCaptions) && <Captions s={s} listening={listening} />}
+          {!hidden && <button className="clear" onClick={() => transcript.clear()} aria-label="Limpar texto"><Icon d={P.trash} size={20} /></button>}
+        </section>
         {tab === 'escrever' && <Write s={s} show={setBigMsg} />}
         {tab === 'personalizar' && <Customize s={s} up={update} setS={setS} />}
       </main>

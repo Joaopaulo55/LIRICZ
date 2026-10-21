@@ -146,3 +146,21 @@ h3 { margin: 1.4rem auto .5rem; font-size: 1rem; color: var(--green-dark); }
 @keyframes splashOut { to { opacity: 0; visibility: hidden; } }
 @media (prefers-reduced-motion: reduce) { .splash { animation: splashOut .3s ease .9s both; } .wm span, .wm .z, .by span { animation: none; opacity: 1; } .by { display: none; } }
 .seg .lgp { display: block; font-size: .5em; font-weight: 700; letter-spacing: .06em; opacity: .85; margin-top: .1em; line-height: 1.2; }
+
+/* ---- LGP: avatar ---- */
+.read[hidden], .lgpstage[hidden] { display: none; }
+.lgpstage { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: .5rem; padding-top: .5rem; }
+.lgpstage.with-caps { flex: 0 0 46%; }
+.avbox { position: relative; flex: 1 1 auto; min-height: 200px; border-radius: 18px; overflow: hidden; background: color-mix(in srgb, var(--tc) 8%, var(--bg)); }
+.avbox .CWASAAvatar { position: absolute; inset: 0; }
+.avbox .CWASAAvatar canvas { width: 100%; height: 100%; display: block; }
+.avmsg { position: absolute; left: 0; right: 0; bottom: .6rem; margin: 0; padding: 0 1rem; text-align: center; font-size: .95rem; color: var(--tc); opacity: .85; }
+.glr { display: flex; flex-wrap: wrap; gap: .35rem; justify-content: center; }
+.gl { padding: .2rem .6rem; border-radius: 999px; font-weight: 700; font-size: 1rem; letter-spacing: .04em; border: 2px solid var(--tc); color: var(--tc); }
+.gl.no { border-style: dashed; opacity: .6; }
+.lgpbar { display: flex; gap: .5rem; align-items: center; justify-content: center; flex-wrap: wrap; font-size: .85rem; }
+.lgpnote { text-align: center; margin: 0; }
+.btn.sm { min-height: 38px; padding: .4rem .8rem; font-size: .9rem; }
+.admin { margin: 1rem 0; } .admin summary { font-weight: 600; cursor: pointer; padding: .4rem 0; }
+.admin input, .admin select, .admin textarea { margin: .3rem 0; } .admin textarea { font: .85rem ui-monospace, Consolas, monospace; resize: vertical; }
+.adminlist { margin: .5rem 0; padding-left: 1.1rem; font-size: .85rem; }

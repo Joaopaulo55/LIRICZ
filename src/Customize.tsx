@@ -3,6 +3,7 @@ import { Words } from './Captions'
 import { aiFix, sayText } from './ai'
 import { ttsSupported, listVoices } from './tts'
 import { translateLgp } from './lgp'
+import { SignAdmin } from './SignAdmin'
 import { norm, DEFAULT_EMOJI } from './emoji'
 import { Settings, DEFAULTS, FONTS, PROFILES, ANIMS, loadCustomProfiles, saveCustomProfiles, clearAll } from './settings'
 
@@ -112,9 +113,11 @@ export function Customize({ s, up, setS }: { s: Settings; up: Up; setS: (s: Sett
         {sec === 'LGP' && <>
           <Check checked={s.lgpOn} onChange={(v) => {
             if (!v) return up({ lgpOn: false })
-            if (confirm('Ligar a tradução para glosas de LGP?\n\n• O texto de cada frase confirmada (sem áudio) é enviado ao servidor do LIRICz para ser convertido.\n• É Língua Gestual Portuguesa (Portugal), não Língua Gestual Angolana.\n• Aparece por baixo das legendas no modo "Ao vivo".')) up({ lgpOn: true })
-          }}>Mostrar a frase em glosas de LGP (Língua Gestual Portuguesa)</Check>
-          <p className="hint-l">Desligado por defeito. Glosas são a frase escrita na ordem e nas palavras da LGP, em maiúsculas; não são vídeos nem sinais animados. É uma tradução automática de português europeu para LGP de Portugal e pode não corresponder à Língua Gestual Angolana. O servidor gratuito adormece quando está parado: a primeira frase pode demorar cerca de um minuto.</p>
+            if (confirm('Ligar a tradução para glosas de LGP?\n\n• O texto de cada frase confirmada (sem áudio) é enviado ao servidor do LIRICz para ser convertido.\n• É Língua Gestual Portuguesa (Portugal), não Língua Gestual Angolana.\n• Passa a aparecer um avatar a gestualizar e as legendas de texto ficam escondidas (podes voltar a mostrá-las nesta secção).')) up({ lgpOn: true })
+          }}>Mostrar o avatar de língua gestual (LGP) em vez das legendas</Check>
+          <Check checked={s.lgpCaptions} onChange={(v) => up({ lgpCaptions: v })}>Mostrar também as legendas de texto com o avatar</Check>
+          <p className="hint-l">Desligado por defeito. O servidor converte a frase em glosas (a frase na ordem e nas palavras da LGP) e o avatar 3D gestualiza as glosas para as quais existe um sinal validado guardado; as outras aparecem só como texto. É uma tradução automática de português europeu para LGP de Portugal e pode não corresponder à Língua Gestual Angolana. O servidor gratuito adormece quando está parado: a primeira frase pode demorar cerca de um minuto.</p>
+          <SignAdmin />
           <button className="btn ghost" onClick={async () => { setMsg('A testar… (se o servidor estiver a dormir, pode demorar até 1 minuto)'); try { const r = await translateLgp('Qual é o teu nome?', undefined, 6); setMsg('Resultado: ' + r.glosses.join(' ')) } catch (e) { setMsg('Falhou: ' + (e as Error).message) } }}>Testar LGP</button>
           {msg && <p className="hint-l">{msg}</p>}
         </>}

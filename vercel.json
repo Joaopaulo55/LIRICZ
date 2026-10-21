@@ -22,6 +22,9 @@
   "functions": {
     "api/lgp.ts": {
       "maxDuration": 60
+    },
+    "api/signs.ts": {
+      "maxDuration": 15
     }
   }
 }
