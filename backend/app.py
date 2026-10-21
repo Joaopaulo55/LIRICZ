@@ -60,6 +60,7 @@ def root():
 
 @app.get("/health")
 def health():
+    adapter.nudge_nlp()  # acorda o servidor NLP (spaCy), se existir
     return {"status": "ok", "translator_ready": state["ready"], "error": state["error"],
             "memory_mb": _mem_mb(), **(adapter.info() if state["ready"] else {"stage": adapter.stage})}
 

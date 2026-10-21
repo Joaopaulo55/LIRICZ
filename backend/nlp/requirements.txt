@@ -1,0 +1,7 @@
+fastapi==0.110.3
+uvicorn==0.29.0
+numpy==1.21.6
+spacy==2.3.2
+cymem==2.0.8
+murmurhash==1.0.10
+preshed==3.0.9

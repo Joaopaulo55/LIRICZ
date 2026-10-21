@@ -1,4 +1,5 @@
 // Proxy Vercel -> backend PE2LGP. O token fica no servidor; o navegador nunca o vê.
+declare const process: { env: Record<string, string | undefined> } // evita o erro TS2591 sem precisar de @types/node
 const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } })
 const base = () => (process.env.LGP_BACKEND_URL || '').replace(/\/$/, '')
 

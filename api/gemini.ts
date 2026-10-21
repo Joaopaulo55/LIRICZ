@@ -1,4 +1,5 @@
 // Função serverless do Vercel. A chave GEMINI_API_KEY fica só no servidor (secret).
+declare const process: { env: Record<string, string | undefined> } // evita o erro TS2591 sem precisar de @types/node
 // Os modelos podem ser uma lista separada por vírgulas (o 1.º é o preferido; os outros entram se o 1.º falhar com 429/503/404...).
 const list = (v: string | undefined, d: string[]) => [...new Set([...(v || '').split(',').map((s) => s.trim()).filter(Boolean), ...d])]
 const TEXT_MODELS = list(process.env.GEMINI_TEXT_MODEL, ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'])

@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import threading
+import time
 import unicodedata
 from pathlib import Path
 
@@ -33,6 +34,10 @@ AUTO_PERIOD = os.getenv("LGP_AUTO_PERIOD", "1") != "0"
 # Modo leve (padrão): o FreeLing arranca SEM deteção de multipalavras e de nomes próprios (não carrega
 # locucions.dat nem np.dat). Poupa memória no Render grátis (512 MB). LGP_LITE=0 repõe o comportamento original.
 LITE = os.getenv("LGP_LITE", "1") != "0"
+# Servidor NLP separado (spaCy). Se NLP_URL estiver definido, este processo NÃO carrega o spaCy (poupa ~270 MB)
+# e pede as dependências sintáticas ao outro serviço. Sem NLP_URL, usa o spaCy local como antes.
+NLP_URL = os.getenv("NLP_URL", "").strip().rstrip("/")
+TOKEN = os.getenv("LGP_TOKEN", "")
 
 _lock = threading.Lock()  # o PE2LGP usa estado global e cwd: um pedido de cada vez
 _ctx: dict = {}
@@ -96,6 +101,78 @@ def _cache_spacy() -> None:
     spacy.load = load
 
 
+# --------------------------------------------------------------------------- spaCy remoto
+_nlp_wait = 35.0  # segundos máximos a esperar pelo servidor NLP (maior no arranque, para ele acordar)
+_last_nudge = 0.0
+
+
+def _nlp_parse(text: str) -> dict:
+    import json
+    import urllib.error
+    import urllib.request
+
+    data = json.dumps({"text": text}).encode()
+    deadline = time.monotonic() + _nlp_wait
+    last: Exception | None = None
+    while True:
+        req = urllib.request.Request(NLP_URL + "/parse", data=data, headers={"content-type": "application/json", "x-liricz-token": TOKEN})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            last = e
+            if e.code not in (502, 503, 504):  # 401/422/500: não adianta repetir
+                raise RuntimeError(f"servidor NLP respondeu {e.code}") from e
+        except Exception as e:  # noqa: BLE001  (timeout, ligação recusada, ...)
+            last = e
+        if time.monotonic() + 4 > deadline:
+            raise RuntimeError(f"servidor NLP indisponível ({type(last).__name__}: {last})")
+        time.sleep(4)
+
+
+def _install_remote_spacy() -> None:
+    """Põe em sys.modules um 'spacy' falso cujo load() devolve um cliente HTTP. O dependencias.py do PE2LGP não muda."""
+    import types
+
+    class _Tok:
+        __slots__ = ("i", "dep_", "children")
+
+        def __init__(self, i, dep):
+            self.i, self.dep_, self.children = i, dep, []
+
+    class _RemoteNlp:
+        def __call__(self, text):
+            d = _nlp_parse(text)
+            toks = [_Tok(i, dep) for i, dep in enumerate(d["deps"])]
+            for t, ch in zip(toks, d["children"]):
+                t.children = [toks[j] for j in ch]
+            return toks
+
+    nlp = _RemoteNlp()
+    mod = types.ModuleType("spacy")
+    mod.load = lambda *_a, **_k: nlp  # type: ignore[attr-defined]
+    sys.modules["spacy"] = mod
+
+
+def _wake_nlp() -> None:
+    """Acorda o servidor NLP em segundo plano (o Render grátis adormece)."""
+    def go():
+        try:
+            import urllib.request
+            urllib.request.urlopen(NLP_URL + "/health", timeout=60).read()
+        except Exception:  # noqa: BLE001
+            pass
+    threading.Thread(target=go, daemon=True).start()
+
+
+def nudge_nlp() -> None:
+    """Chamado pelo /health: mantém/acorda o servidor NLP, no máximo uma vez por 2 minutos."""
+    global _last_nudge
+    if NLP_URL and time.monotonic() - _last_nudge > 120:
+        _last_nudge = time.monotonic()
+        _wake_nlp()
+
+
 def _lite_freeling(tradutor) -> None:
     """Faz o load_freeling() do PE2LGP arrancar sem multipalavras/NER, sem alterar ficheiros do PE2LGP."""
     import freeling as fl  # Modulo_construcao_regras/freeling.py
@@ -135,13 +212,20 @@ def load() -> None:
         sys.path.append(str(REGRAS))
     os.chdir(TRAD)
 
-    stage = "a carregar spaCy"
-    _cache_spacy()
-    import spacy
+    global _nlp_wait
+    if NLP_URL:
+        stage = "spaCy remoto"
+        _install_remote_spacy()
+        _wake_nlp()
+        _log(f"spaCy remoto: {NLP_URL}")
+    else:
+        stage = "a carregar spaCy"
+        _cache_spacy()
+        import spacy
 
-    spacy.load(SPACY_MODEL)  # falha cedo e com mensagem clara se o modelo não estiver instalado
-    _trim()
-    _log("spaCy carregado")
+        spacy.load(SPACY_MODEL)  # falha cedo e com mensagem clara se o modelo não estiver instalado
+        _trim()
+        _log("spaCy carregado")
 
     import tradutor  # noqa: E402  (módulo do PE2LGP)
 
@@ -176,17 +260,19 @@ def load() -> None:
     )
 
     # Aquecimento: carrega o que falta (NLTK, regras). Um falhanço aqui não impede o serviço.
+    _nlp_wait = 150.0  # no arranque o servidor NLP pode estar a acordar
     try:
         _run("Bom dia.")
         _log("frase de aquecimento OK")
     except Exception as e:  # noqa: BLE001
         warnings.append(f"Frase de aquecimento falhou ({type(e).__name__}): {e}")
+    _nlp_wait = 35.0
     _trim()
     stage = "pronto"
 
 
 def info() -> dict:
-    return {"visemes": _ctx.get("visemes", False), "warnings": list(warnings), "lite": LITE, "stage": stage}
+    return {"visemes": _ctx.get("visemes", False), "warnings": list(warnings), "lite": LITE, "nlp": NLP_URL or "local", "stage": stage}
 
 
 # --------------------------------------------------------------------------- tradução
