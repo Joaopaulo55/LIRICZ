@@ -5,8 +5,11 @@ const base = () => (process.env.LGP_BACKEND_URL || '').replace(/\/$/, '')
 // GET: acorda o backend do Render (arranque frio) sem esperar pelo carregamento completo.
 export async function GET() {
   if (!base()) return json({ configured: false })
-  try { return json(await (await fetch(`${base()}/health`, { signal: AbortSignal.timeout(8000) })).json()) }
-  catch { return json({ status: 'waking' }) }
+  try {
+    const r = await fetch(`${base()}/health`, { signal: AbortSignal.timeout(8000) })
+    if (!r.ok) return json({ status: 'waking', upstream: r.status })
+    return json(await r.json())
+  } catch { return json({ status: 'waking' }) }
 }
 
 export async function POST(req: Request) {
@@ -19,6 +22,11 @@ export async function POST(req: Request) {
   if (!text) return json({ error: 'texto vazio' }, 400)
   try {
     const r = await fetch(`${base()}/translate`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-liricz-token': process.env.LGP_TOKEN }, body: JSON.stringify({ text }), signal: AbortSignal.timeout(55000) })
-    return new Response(await r.text(), { status: r.status, headers: { 'content-type': 'application/json' } })
+    const raw = await r.text()
+    try { JSON.parse(raw) } catch {
+      // Resposta que não é JSON = página de erro do Render (502/503/504): o servidor está a acordar, a reiniciar ou ficou sem memória.
+      return json({ error: `O servidor LGP não está pronto (${r.status}). Está a acordar ou a reiniciar; tenta de novo daqui a pouco.`, upstream: r.status }, 503)
+    }
+    return new Response(raw, { status: r.status, headers: { 'content-type': 'application/json' } })
   } catch { return json({ error: 'O backend LGP não respondeu (pode estar a acordar). Tenta de novo.' }, 504) }
 }

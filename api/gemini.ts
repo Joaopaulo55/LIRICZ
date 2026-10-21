@@ -1,9 +1,12 @@
 // Função serverless do Vercel. A chave GEMINI_API_KEY fica só no servidor (secret).
-const TEXT = process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash'
-const TTS = process.env.GEMINI_TTS_MODEL || 'gemini-3.1-flash-tts-preview'
+// Os modelos podem ser uma lista separada por vírgulas (o 1.º é o preferido; os outros entram se o 1.º falhar com 429/503/404...).
+const list = (v: string | undefined, d: string[]) => [...new Set([...(v || '').split(',').map((s) => s.trim()).filter(Boolean), ...d])]
+const TEXT_MODELS = list(process.env.GEMINI_TEXT_MODEL, ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'])
+const TTS_MODELS = list(process.env.GEMINI_TTS_MODEL, ['gemini-3.8-flash-lite-tts', 'gemini-3.1-flash-tts-preview'])
 const VOICES = ['Kore', 'Puck', 'Charon', 'Aoede', 'Zephyr', 'Fenrir']
 const SYS = 'És um corretor de legendas em português. Recebes uma frase transcrita por voz. Corrige pontuação, maiúsculas e erros evidentes de reconhecimento. Não acrescentes, não resumas, não traduzas e não respondas à frase. Devolve apenas a frase corrigida.'
 const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } })
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export async function POST(req: Request) {
   const origin = req.headers.get('origin'), host = req.headers.get('host')
@@ -16,19 +19,38 @@ export async function POST(req: Request) {
   const text = String(b.text || '').trim().slice(0, mode === 'tts' ? 600 : 400)
   if (!text) return json({ error: 'texto vazio' }, 400)
   const call = (model: string, body: unknown) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body) })
+
+  // 503 (modelo sobrecarregado): 1 nova tentativa no mesmo modelo. 429/404/500/...: passa logo ao modelo seguinte (cada modelo tem a sua quota).
+  const run = async (models: string[], attempt: (m: string) => Promise<Response>) => {
+    let last = 0
+    for (const m of models) {
+      for (let a = 0; a < 2; a++) {
+        const r = await attempt(m)
+        if (r.ok) return { r }
+        last = r.status
+        if (r.status === 503 && a === 0) { await sleep(700); continue }
+        break
+      }
+    }
+    return { status: last }
+  }
+
   try {
     if (mode === 'fix') {
       const body = (think: boolean) => ({ systemInstruction: { parts: [{ text: SYS }] }, contents: [{ role: 'user', parts: [{ text }] }], generationConfig: { temperature: 0, maxOutputTokens: 1024, ...(think ? { thinkingConfig: { thinkingLevel: 'low' } } : {}) } })
-      let r = await call(TEXT, body(true))
-      if (r.status === 400) r = await call(TEXT, body(false)) // se o parâmetro de raciocínio não for aceite
-      if (!r.ok) return json({ error: `Gemini ${r.status}` }, 502)
-      const d: any = await r.json()
+      const res = await run(TEXT_MODELS, async (m) => {
+        const r = await call(m, body(true))
+        return r.status === 400 ? call(m, body(false)) : r // se o parâmetro de raciocínio não for aceite
+      })
+      if (!res.r) return json({ error: `Gemini ${res.status}` }, 502)
+      const d: any = await res.r.json()
       return json({ text: d.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '' })
     }
     const voice = VOICES.includes(b.voice) ? b.voice : 'Kore'
-    const r = await call(TTS, { contents: [{ parts: [{ text: `Diz de forma natural e calorosa, em português: ${text}` }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } })
-    if (!r.ok) return json({ error: `Gemini ${r.status}` }, 502)
-    const d: any = await r.json()
+    const body = { contents: [{ parts: [{ text: `Diz de forma natural e calorosa, em português: ${text}` }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } }
+    const res = await run(TTS_MODELS, (m) => call(m, body))
+    if (!res.r) return json({ error: `Gemini ${res.status}` }, 502)
+    const d: any = await res.r.json()
     const audio = d.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData)?.inlineData?.data
     return audio ? json({ audio, rate: 24000 }) : json({ error: 'sem áudio' }, 502)
   } catch { return json({ error: 'falha de rede' }, 502) }

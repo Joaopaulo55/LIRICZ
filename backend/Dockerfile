@@ -56,6 +56,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends locales \
  && locale-gen en_US.UTF-8 && rm -rf /var/lib/apt/lists/*
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
-RUN useradd -r -u 10001 app
+RUN useradd -m -u 1000 app
 USER app
 CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1 --no-access-log"]

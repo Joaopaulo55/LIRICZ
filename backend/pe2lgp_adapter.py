@@ -12,7 +12,9 @@ fallback se o eSpeak falhar) são feitas aqui.
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import functools
+import gc
 import glob
 import io
 import os
@@ -28,10 +30,23 @@ REGRAS = ROOT / "Modulo_construcao_regras"
 SPACY_MODEL = "pt_core_news_sm"
 DEBUG = os.getenv("LGP_DEBUG") == "1"
 AUTO_PERIOD = os.getenv("LGP_AUTO_PERIOD", "1") != "0"
+# Modo leve (padrão): o FreeLing arranca SEM deteção de multipalavras e de nomes próprios (não carrega
+# locucions.dat nem np.dat). Poupa memória no Render grátis (512 MB). LGP_LITE=0 repõe o comportamento original.
+LITE = os.getenv("LGP_LITE", "1") != "0"
 
 _lock = threading.Lock()  # o PE2LGP usa estado global e cwd: um pedido de cada vez
 _ctx: dict = {}
 warnings: list[str] = []  # mostrado em /health
+stage = "a iniciar"  # fase do arranque, mostrada em /health (se o processo morrer, a última fase nos logs diz onde)
+
+
+def _trim() -> None:
+    """Devolve ao sistema a memória que o Python já libertou (ajuda a ficar abaixo dos 512 MB)."""
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _log(msg: str) -> None:
@@ -81,7 +96,28 @@ def _cache_spacy() -> None:
     spacy.load = load
 
 
+def _lite_freeling(tradutor) -> None:
+    """Faz o load_freeling() do PE2LGP arrancar sem multipalavras/NER, sem alterar ficheiros do PE2LGP."""
+    import freeling as fl  # Modulo_construcao_regras/freeling.py
+
+    orig_opts, orig_load = fl.my_maco_options, fl.load_freeling
+
+    def lite_opts(lang, lpath):
+        opt = orig_opts(lang, lpath)
+        opt.LocutionsFile = ""  # sem multipalavras
+        opt.NPdataFile = ""  # sem nomes próprios
+        return opt
+
+    def lite_load(_valor):
+        return orig_load(False)
+
+    fl.my_maco_options = lite_opts
+    fl.load_freeling = lite_load
+    tradutor.load_freeling = lite_load  # o tradutor.py importou o nome com "from freeling import ..."
+
+
 def load() -> None:
+    global stage
     for p in (TRAD / "tradutor.py", REGRAS / "freeling.py"):
         if not p.exists():
             raise FileNotFoundError(
@@ -99,17 +135,26 @@ def load() -> None:
         sys.path.append(str(REGRAS))
     os.chdir(TRAD)
 
+    stage = "a carregar spaCy"
     _cache_spacy()
     import spacy
 
     spacy.load(SPACY_MODEL)  # falha cedo e com mensagem clara se o modelo não estiver instalado
+    _trim()
     _log("spaCy carregado")
 
     import tradutor  # noqa: E402  (módulo do PE2LGP)
 
     _log("módulo tradutor importado")
+    if LITE:
+        _lite_freeling(tradutor)
+        warnings.append("Modo leve: sem deteção de multipalavras e nomes próprios (LGP_LITE=0 para desligar).")
+    stage = "a carregar FreeLing"
+    _log("a carregar FreeLing (modo leve)" if LITE else "a carregar FreeLing (completo)")
     result = tradutor.tradutor_main()
+    _trim()
     _log("FreeLing + dicionário carregados")
+    stage = "a aquecer"
     if not result:
         raise RuntimeError("tradutor_main() não devolveu os modelos do PE2LGP.")
     model, palavras_glosas, freq_dic, negativa_irregular, gestos_compostos = result
@@ -136,10 +181,12 @@ def load() -> None:
         _log("frase de aquecimento OK")
     except Exception as e:  # noqa: BLE001
         warnings.append(f"Frase de aquecimento falhou ({type(e).__name__}): {e}")
+    _trim()
+    stage = "pronto"
 
 
 def info() -> dict:
-    return {"visemes": _ctx.get("visemes", False), "warnings": list(warnings)}
+    return {"visemes": _ctx.get("visemes", False), "warnings": list(warnings), "lite": LITE, "stage": stage}
 
 
 # --------------------------------------------------------------------------- tradução

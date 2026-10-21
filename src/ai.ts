@@ -33,12 +33,20 @@ export async function aiSpeak(text: string, voice: string, key: string): Promise
   stopAi(); src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination); src.start()
 }
 
+let coolUntil = 0 // depois de um 429 (limite da Google) não insiste durante 1 minuto
+
 // Devolve uma mensagem de aviso, ou null se correu bem.
 export async function sayText(text: string, s: Settings): Promise<string | null> {
   stopSpeaking(); stopAi()
   if (s.aiTts) {
+    if (Date.now() < coolUntil) { speak(text, s.speakRate, s.speakPitch, s.voiceURI); return 'Voz com IA em pausa 1 minuto (limite da Google). Usei a voz do dispositivo.' }
     try { await aiSpeak(text, s.aiVoice, s.geminiKey); return null }
-    catch (e) { speak(text, s.speakRate, s.speakPitch, s.voiceURI); return `A voz com IA falhou (${(e as Error).message}). Usei a voz do dispositivo.` }
+    catch (e) {
+      const m = (e as Error).message
+      if (m.includes('429')) coolUntil = Date.now() + 60000
+      speak(text, s.speakRate, s.speakPitch, s.voiceURI)
+      return `A voz com IA falhou (${m}). Usei a voz do dispositivo.`
+    }
   }
   return speak(text, s.speakRate, s.speakPitch, s.voiceURI) ? null : 'Voz indisponível neste dispositivo.'
 }

@@ -61,7 +61,7 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok", "translator_ready": state["ready"], "error": state["error"],
-            "memory_mb": _mem_mb(), **(adapter.info() if state["ready"] else {})}
+            "memory_mb": _mem_mb(), **(adapter.info() if state["ready"] else {"stage": adapter.stage})}
 
 
 @app.post("/translate")
