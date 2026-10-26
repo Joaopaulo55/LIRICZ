@@ -92,6 +92,16 @@ async def reload_dictionary(x_liricz_token: str = Header(default="")):
     return {"ok": True, **info}
 
 
+@app.get("/glosses")
+async def glosses(x_liricz_token: str = Header(default="")):
+    """Lista de glosas conhecidas pelo tradutor (o painel usa-a para procurar e converter em SiGML)."""
+    _auth(x_liricz_token)
+    if not state["ready"]:
+        raise HTTPException(503, state["error"] or "O tradutor ainda está a carregar.")
+    g = adapter.glosses()
+    return {"count": len(g), "glosses": g}
+
+
 @app.post("/translate")
 async def translate(req: Req, x_liricz_token: str = Header(default="")):
     _auth(x_liricz_token)

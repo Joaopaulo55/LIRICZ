@@ -53,6 +53,22 @@ function candidates(xs: string[]): string[] {
   return out
 }
 const haveSigns = async (language: 'LGA' | 'LGP') => new Set((await q(`SELECT gloss, gloss_fold FROM signs WHERE language = $1`, [language])).rows.map((r) => String(r.gloss_fold || gfold(r.gloss))))
+let bgCache: { at: number; list: string[] } | null = null
+// glosas que o backend (Render) conhece; nunca rebenta: devolve o estado para o painel o mostrar
+async function backendGlosses(): Promise<{ list: string[]; state: string }> {
+  if (!backendUrl() || !process.env.LGP_TOKEN) return { list: [], state: 'não configurado (LGP_BACKEND_URL / LGP_TOKEN)' }
+  if (bgCache && Date.now() - bgCache.at < 120_000) return { list: bgCache.list, state: 'ok' }
+  try {
+    const r = await fetch(backendUrl() + '/glosses', { headers: { 'x-liricz-token': process.env.LGP_TOKEN! }, signal: AbortSignal.timeout(25000) })
+    if (r.status === 404) return { list: [], state: 'o backend ainda não tem /glosses: publica a versão nova do backend' }
+    if (r.status === 503) return { list: [], state: 'o backend está a acordar ou a carregar; tenta daqui a 1 minuto' }
+    if (!r.ok) return { list: [], state: `o backend respondeu ${r.status}` }
+    const d: any = await r.json()
+    const list = Array.isArray(d.glosses) ? d.glosses.map(String) : []
+    bgCache = { at: Date.now(), list }
+    return { list, state: 'ok' }
+  } catch { return { list: [], state: 'o backend não respondeu (pode estar a acordar)' } }
+}
 const lexGlosses = async (language: 'LGA' | 'LGP') => (await q(`SELECT DISTINCT gloss FROM lexicon WHERE enabled AND lang = $1`, [language])).rows.map((r) => r.gloss as string)
 
 const H: Record<string, (b: any) => Promise<unknown>> = {
@@ -261,6 +277,33 @@ const H: Record<string, (b: any) => Promise<unknown>> = {
   },
   async gemini_key_clear() { await delSecret('gemini_key'); forgetGeminiKey(); await logEvent('admin', { act: 'gemini_key_clear' }); return H.gemini_status({}) },
 
+  // ---------- glosas conhecidas (dicionário + incluído + fila + backend + sinais) ----------
+  async gloss_list(b) {
+    const language = lang(b.language ?? 'LGP')
+    const map = new Map<string, { gloss: string; sources: Set<string>; signs: Record<string, { state: string; gloss: string }> }>()
+    const add = (g: unknown, src: string) => {
+      const k = gkey(String(g ?? '')); if (!okGloss(k)) return
+      const f = gfold(k); let e = map.get(f); if (!e) { e = { gloss: k, sources: new Set(), signs: {} }; map.set(f, e) }
+      e.sources.add(src); return e
+    }
+    for (const x of await lexGlosses('LGP')) add(x, 'dicionário')
+    for (const x of await lexGlosses('LGA')) add(x, 'dicionário')
+    for (const x of SEED_GLOSSES) add(x, 'incluído')
+    for (const r of (await q(`SELECT gloss FROM missing`)).rows) add(r.gloss, 'fila')
+    let backend = 'não pedido'
+    if (b.backend !== false) { const bg = await backendGlosses(); backend = bg.state; for (const x of bg.list) add(x, 'backend') }
+    for (const r of (await q(`SELECT gloss, gloss_fold, language, validated_by FROM signs`)).rows) {
+      const e = add(r.gloss, 'sinal'); if (e) e.signs[r.language] = { state: r.validated_by ? 'validado' : 'rascunho', gloss: r.gloss }
+    }
+    const needle = gfold(String(b.q || '')).replace(/_/g, '')
+    let rows = [...map.entries()].filter(([f]) => !needle || f.replace(/_/g, '').includes(needle)).map(([, e]) => ({ gloss: e.gloss, sources: [...e.sources].filter((x) => x !== 'sinal'), signs: e.signs }))
+    if (b.status === 'sem') rows = rows.filter((r) => !r.signs[language])
+    else if (b.status === 'com') rows = rows.filter((r) => r.signs[language])
+    rows.sort((a, z) => a.gloss.localeCompare(z.gloss))
+    const limit = Math.min(200, Math.max(1, Number(b.limit) || 100)), offset = Math.max(0, Number(b.offset) || 0)
+    return { rows: rows.slice(offset, offset + limit), total: rows.length, backend }
+  },
+
   // ---------- converter glosas já existentes em SiGML (1 clique) ----------
   async gloss_sources(b) {
     const language = lang(b.language ?? 'LGP')
@@ -279,6 +322,7 @@ const H: Record<string, (b: any) => Promise<unknown>> = {
     let pool: string[] = String(b.paste || '').split(/[\n,;]+/)
     if (src.lexicon) pool = pool.concat(await lexGlosses(language))
     if (src.seed) pool = pool.concat(SEED_GLOSSES)
+    if (src.backend) pool = pool.concat((await backendGlosses()).list)
     if (src.missing) pool = pool.concat((await q(`SELECT gloss FROM missing`)).rows.map((r) => r.gloss))
     const have = await haveSigns(language), skip = new Set((Array.isArray(b.skip) ? b.skip : []).map((g: unknown) => gkey(String(g))))
     // palavras simples primeiro: assim as compostas já encontram as partes feitas

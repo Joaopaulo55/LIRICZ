@@ -24,6 +24,12 @@ Caixa **“Converter glosas existentes em SiGML”**: junta as glosas do dicion�
 3. Opcional: soletrar com o alfabeto manual o que não der.
 Tudo fica **rascunho provisório**. Podes parar e continuar: só converte o que ainda falta.
 
+## Separador Glosas
+Mostra todas as glosas que o projeto conhece (dicionário do painel, dicionário LGP incluído, fila sem sinal e **glosas do backend no Render**), com o estado do sinal em LGP e LGA. Filtra por “sem sinal”, carrega em **Converter** (cria o SiGML como rascunho) ou em **Criar/Editar**. Para listar as glosas do backend, o Render precisa da versão nova do backend (`GET /glosses`); sem ela o painel avisa e mostra as restantes fontes.
+
+## Avatar no telemóvel
+O botão **Avatar** (canto inferior direito) abre o avatar numa janela por cima. Abre-se sozinho quando carregas em ▶.
+
 ## O que cada separador faz
 - **Visão geral**: estado do backend, sinais, fila, uso da IA, últimos eventos e erros.
 - **Sinais**: lista, edita, pré-visualiza no avatar, valida, copia LGP → LGA, apaga.

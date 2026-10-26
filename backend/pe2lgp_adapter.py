@@ -265,6 +265,18 @@ def _lexicon() -> dict:
     return _lex_cache[1]
 
 
+def glosses() -> list:
+    """Todas as glosas que o tradutor conhece (dicionário + gestos compostos), para o painel as listar."""
+    out = set()
+    for e in _ctx.get("palavras_glosas") or []:
+        if len(e) > 2 and str(e[2]).strip():
+            out.add(str(e[2]).strip())
+    for k, parts in _compounds().items():
+        out.add(k)
+        out.update(parts)
+    return sorted(out, key=lambda g: g.lower())
+
+
 def fallback(text: str, reason: str = "") -> dict:
     """Quando o PE2LGP falha: glosas palavra-a-palavra (sem reordenar a frase). Palavras sem entrada ficam como estão
     e o LIRICz soletra-as ou usa a IA. É menos fiel à gramática da LGP, mas o avatar nunca fica parado."""

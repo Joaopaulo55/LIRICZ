@@ -6,7 +6,7 @@ import './panel.css'
 type Api = (action: string, body?: Record<string, unknown>) => Promise<any>
 interface Ctx { api: Api; vocab: any; reload: () => Promise<void>; play: (xml: string) => void; playSeq: (segs: { sigml: string; pauseMs: number }[]) => void }
 const TK = 'liricz.admin'
-const TABS = ['Visão geral', 'Sinais', 'LGA (Angola)', 'Fila', 'Automático', 'Dicionário', 'Testar', 'Configuração'] as const
+const TABS = ['Visão geral', 'Sinais', 'Glosas', 'LGA (Angola)', 'Fila', 'Automático', 'Dicionário', 'Testar', 'Configuração'] as const
 type Tab = typeof TABS[number]
 const wrap = (x: string) => (/<sigml[\s>]/i.test(x) ? x : `<?xml version="1.0" encoding="utf-8"?><sigml>${x}</sigml>`)
 const AvatarCanvas = memo(function AvatarCanvas() { return <div className="CWASAAvatar av0" /> })
@@ -36,6 +36,7 @@ export default function Panel() {
   const [vocab, setVocab] = useState<any>(null)
   const [av, setAv] = useState<'off' | 'loading' | 'ready' | 'error'>('off')
   const [avErr, setAvErr] = useState('')
+  const [dock, setDock] = useState(false) // telemóvel: o avatar abre numa janela por cima
   const avRef = useRef<'off' | 'loading' | 'ready' | 'error'>('off')
   const seq = useRef<{ sigml: string; pauseMs: number }[]>([])
   const after = useRef(0)
@@ -61,9 +62,9 @@ export default function Panel() {
     try { await initAvatar(); avRef.current = 'ready'; setAv('ready'); return true }
     catch (e) { avRef.current = 'error'; setAv('error'); setAvErr((e as Error).message); return false }
   }
-  const play = async (xml: string) => { seq.current = []; clearTimeout(tm.current); if (await startAvatar()) { try { stopAvatar() } catch { /* ok */ } playSigml(wrap(xml)) } }
+  const play = async (xml: string) => { setDock(true); seq.current = []; clearTimeout(tm.current); if (await startAvatar()) { try { stopAvatar() } catch { /* ok */ } playSigml(wrap(xml)) } }
   const next = () => { const s = seq.current.shift(); if (!s) return; after.current = s.pauseMs; playSigml(s.sigml) }
-  const playSeq = async (segs: { sigml: string; pauseMs: number }[]) => { clearTimeout(tm.current); seq.current = [...segs]; if (await startAvatar()) next() }
+  const playSeq = async (segs: { sigml: string; pauseMs: number }[]) => { setDock(true); clearTimeout(tm.current); seq.current = [...segs]; if (await startAvatar()) next() }
   useEffect(() => onAvatarIdle(() => { const w = after.current; after.current = 0; if (!seq.current.length) return; if (w > 0) tm.current = window.setTimeout(next, w); else next() }), [])
 
   if (!authed) return (
@@ -91,6 +92,7 @@ export default function Panel() {
         <main>
           {tab === 'Visão geral' && <Overview ctx={ctx} />}
           {tab === 'Sinais' && <SignsTab ctx={ctx} />}
+          {tab === 'Glosas' && <GlossTab ctx={ctx} />}
           {tab === 'LGA (Angola)' && <LgaTab ctx={ctx} />}
           {tab === 'Fila' && <QueueTab ctx={ctx} />}
           {tab === 'Automático' && <AutoTab ctx={ctx} />}
@@ -98,8 +100,8 @@ export default function Panel() {
           {tab === 'Testar' && <TestTab ctx={ctx} />}
           {tab === 'Configuração' && <ConfigTab ctx={ctx} />}
         </main>
-        <aside>
-          <h3>Avatar de pré-visualização</h3>
+        <aside className={dock ? 'open' : ''}>
+          <div className="row"><h3>Avatar de pré-visualização</h3><span className="sp" /><button className="pbtn ghost sm avclose" onClick={() => setDock(false)}>Fechar</button></div>
           <AvatarCanvas />
           {av === 'off' && <button className="pbtn" onClick={startAvatar}>Ligar avatar</button>}
           {av === 'loading' && <p className="hint">A carregar o avatar…</p>}
@@ -108,6 +110,7 @@ export default function Panel() {
           <p className="hint">Testa aqui cada SiGML antes de o validar. Se o avatar ficar parado, o SiGML tem algum símbolo que o CWASA não conhece: edita ou apaga esse sinal.</p>
         </aside>
       </div>
+      <button className="pbtn avfab" onClick={() => { const o = !dock; setDock(o); if (o) startAvatar() }}>{dock ? 'Fechar avatar' : 'Avatar'}</button>
     </div>
   )
 }
@@ -201,7 +204,7 @@ function SignsTab({ ctx, lockLang }: { ctx: Ctx; lockLang?: 'LGA' | 'LGP' }) {
 // ----------------------------------------------------------------------------- Converter glosas existentes em SiGML (1 clique)
 function Convert({ ctx, lockLang, onDone }: { ctx: Ctx; lockLang?: 'LGA' | 'LGP'; onDone: () => void }) {
   const [language, setLanguage] = useState<string>(lockLang ?? 'LGP')
-  const [src, setSrc] = useState({ lexicon: true, seed: true, missing: true })
+  const [src, setSrc] = useState({ lexicon: true, seed: true, missing: true, backend: true })
   const [paste, setPaste] = useState('')
   const [ai, setAi] = useState(!!ctx.vocab.gemini), [spell, setSpell] = useState(false)
   const [info, setInfo] = useState<any>(null)
@@ -224,8 +227,8 @@ function Convert({ ctx, lockLang, onDone }: { ctx: Ctx; lockLang?: 'LGA' | 'LGP'
       }
     } catch (e) { setErr((e as Error).message) } finally { setRunning(false); onDone(); count() }
   }
-  const box = (k: 'lexicon' | 'seed' | 'missing', label: string) => (
-    <label className="chk"><input type="checkbox" checked={src[k]} onChange={(e) => setSrc({ ...src, [k]: e.target.checked })} /> {label}{info ? ` (${info[k].pending} por converter de ${info[k].total})` : ''}</label>
+  const box = (k: 'lexicon' | 'seed' | 'missing' | 'backend', label: string) => (
+    <label className="chk"><input type="checkbox" checked={src[k]} onChange={(e) => setSrc({ ...src, [k]: e.target.checked })} /> {label}{info?.[k] ? ` (${info[k].pending} por converter de ${info[k].total})` : ''}</label>
   )
   return (
     <details className="editor" open>
@@ -233,7 +236,7 @@ function Convert({ ctx, lockLang, onDone }: { ctx: Ctx; lockLang?: 'LGA' | 'LGP'
       <p className="hint">Pega nas glosas que o projeto já tem (dicionário do painel, dicionário LGP incluído e fila de palavras sem sinal) e cria o SiGML das que ainda não têm sinal. Palavras compostas juntam os sinais das partes; as restantes são descritas pela IA e montadas por regras. Tudo fica como <b>rascunho provisório</b> até alguém preencher “Validado por”. Podes parar e continuar mais tarde: só converte o que ainda falta.</p>
       <div className="row wrap">
         {!lockLang && <Sel value={language} onChange={setLanguage} options={['LGP', 'LGA']} />}
-        {box('lexicon', 'dicionário do painel')}{box('seed', 'dicionário LGP incluído')}{box('missing', 'fila sem sinal')}
+        {box('lexicon', 'dicionário do painel')}{box('seed', 'dicionário LGP incluído')}{box('missing', 'fila sem sinal')}{box('backend', 'glosas do backend (Render)')}
       </div>
       <textarea rows={2} value={paste} onChange={(e) => setPaste(e.target.value)} placeholder="Opcional: cola mais glosas (uma por linha)" spellCheck={false} />
       <div className="row wrap">
@@ -241,7 +244,7 @@ function Convert({ ctx, lockLang, onDone }: { ctx: Ctx; lockLang?: 'LGA' | 'LGP'
         <label className="chk"><input type="checkbox" checked={spell} onChange={(e) => setSpell(e.target.checked)} /> soletrar com o alfabeto manual o que não der (rascunho)</label>
       </div>
       <div className="row wrap">
-        {!running ? <button className="pbtn" onClick={start} disabled={!src.lexicon && !src.seed && !src.missing && !paste.trim()}>Converter agora</button>
+        {!running ? <button className="pbtn" onClick={start} disabled={!src.lexicon && !src.seed && !src.missing && !src.backend && !paste.trim()}>Converter agora</button>
           : <button className="pbtn danger" onClick={() => { stop.current = true }}>Parar</button>}
         {(running || saved > 0 || left !== null) && <span className="hint">{running ? 'A converter… ' : ''}{saved} guardadas{left !== null ? ` · faltam ${left}` : ''}</span>}
       </div>
@@ -310,6 +313,54 @@ function SignEditor({ ctx, init, lockLang, onSaved }: { ctx: Ctx; init?: any; lo
       <Msg m={msg} />
       <p className="hint">Só ficam “validados” os sinais com o campo “Validado por” preenchido. Os rascunhos (regras/IA) aparecem na app como provisórios se a opção estiver ligada na Configuração.</p>
     </div>
+  )
+}
+
+// ----------------------------------------------------------------------------- Glosas (tudo o que o projeto conhece, com ou sem sinal)
+function GlossTab({ ctx }: { ctx: Ctx }) {
+  const [q, setQ] = useState(''), [language, setLanguage] = useState('LGP'), [status, setStatus] = useState('sem'), [bk, setBk] = useState(true)
+  const [off, setOff] = useState(0)
+  const [data, setData] = useState<{ rows: any[]; total: number; backend: string }>({ rows: [], total: 0, backend: '' })
+  const [edit, setEdit] = useState<{ key: number; init: any } | null>(null)
+  const { busy, msg, go } = useAct()
+  const load = (o = off) => go(async () => setData(await ctx.api('gloss_list', { q, language, status, backend: bk, offset: o, limit: 100 })))
+  useEffect(() => { load(0); setOff(0) }, [language, status])
+  const one = (g: string) => go(async () => {
+    const r = await ctx.api('gloss_convert', { language, sources: {}, paste: g, ai: !!ctx.vocab.gemini, spell: !ctx.vocab.gemini })
+    return r.stopped || r.results[0]?.status || 'sem resultado'
+  }, (x) => `${g}: ${x}`).then(() => load())
+  const sg = (r: any, l: string) => (r.signs[l] ? <span className={`tag ${r.signs[l].state === 'validado' ? 'ok' : 'warn'}`}>{r.signs[l].state}</span> : '—')
+  return (
+    <section>
+      <h2>Glosas conhecidas</h2>
+      <p className="hint">Junta o dicionário do painel, o dicionário LGP incluído, a fila sem sinal e as glosas do backend (Render). “Converter” cria o SiGML dessa glosa (IA se houver chave, senão soletrado) como rascunho.</p>
+      <div className="row wrap">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Procurar glosa" onKeyDown={(e) => { if (e.key === 'Enter') { setOff(0); load(0) } }} />
+        <Sel value={language} onChange={setLanguage} options={['LGP', 'LGA']} />
+        <Sel value={status} onChange={setStatus} options={['sem', 'com']} empty="Com e sem sinal" />
+        <label className="chk"><input type="checkbox" checked={bk} onChange={(e) => setBk(e.target.checked)} /> incluir backend</label>
+        <button className="pbtn" disabled={busy} onClick={() => { setOff(0); load(0) }}>Procurar</button>
+      </div>
+      <Msg m={msg} />
+      {data.backend && data.backend !== 'ok' && data.backend !== 'não pedido' && <p className="pmsg bad">Backend: {data.backend}</p>}
+      <div className="tbl"><table><thead><tr><th>Glosa</th><th>Fontes</th><th>LGP</th><th>LGA</th><th /></tr></thead><tbody>
+        {data.rows.map((r) => (
+          <tr key={r.gloss}>
+            <td><b>{r.gloss}</b></td><td>{r.sources.join(', ') || '—'}</td><td>{sg(r, 'LGP')}</td><td>{sg(r, 'LGA')}</td>
+            <td className="acts">
+              {r.signs[language] && <button className="pbtn sm ghost" onClick={async () => ctx.play((await ctx.api('signs_get', { gloss: r.signs[language].gloss, language })).sign.sigml)}>▶</button>}
+              {!r.signs[language] && <button className="pbtn sm" disabled={busy} onClick={() => one(r.gloss)}>Converter</button>}
+              <button className="pbtn sm ghost" onClick={async () => { const x = r.signs[language]; setEdit({ key: Date.now(), init: x ? (await ctx.api('signs_get', { gloss: x.gloss, language })).sign : { gloss: r.gloss, language } }) }}>{r.signs[language] ? 'Editar' : 'Criar'}</button>
+            </td>
+          </tr>
+        ))}
+        {!data.rows.length && <tr><td colSpan={5} className="hint">Sem glosas com estes filtros.</td></tr>}
+      </tbody></table></div>
+      <div className="row"><span className="hint">{data.total} glosas</span><span className="sp" />
+        <button className="pbtn ghost sm" disabled={off === 0} onClick={() => { const o = Math.max(0, off - 100); setOff(o); load(o) }}>←</button>
+        <button className="pbtn ghost sm" disabled={off + 100 >= data.total} onClick={() => { const o = off + 100; setOff(o); load(o) }}>→</button></div>
+      {edit && <SignEditor key={edit.key} ctx={ctx} init={edit.init} onSaved={() => load()} />}
+    </section>
   )
 }
 
