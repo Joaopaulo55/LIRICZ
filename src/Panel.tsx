@@ -4,7 +4,7 @@ import { initAvatar, onAvatarIdle, playSigml, stopAvatar } from './avatar'
 import './panel.css'
 
 type Api = (action: string, body?: Record<string, unknown>) => Promise<any>
-interface Ctx { api: Api; vocab: any; play: (xml: string) => void; playSeq: (segs: { sigml: string; pauseMs: number }[]) => void }
+interface Ctx { api: Api; vocab: any; reload: () => Promise<void>; play: (xml: string) => void; playSeq: (segs: { sigml: string; pauseMs: number }[]) => void }
 const TK = 'liricz.admin'
 const TABS = ['Visão geral', 'Sinais', 'LGA (Angola)', 'Fila', 'Automático', 'Dicionário', 'Testar', 'Configuração'] as const
 type Tab = typeof TABS[number]
@@ -76,7 +76,8 @@ export default function Panel() {
       <a href="#" onClick={() => { location.hash = '' }}>← voltar à app</a>
     </div></div>
   )
-  const ctx: Ctx = { api, vocab, play, playSeq }
+  const reload = async () => { try { setVocab(await api('vocab')) } catch { /* mantém o anterior */ } }
+  const ctx: Ctx = { api, vocab, reload, play, playSeq }
   return (
     <div className="panel">
       <header>
@@ -123,7 +124,7 @@ function Overview({ ctx }: { ctx: Ctx }) {
   const by = (k: string, v: any) => o.signs.filter((x: any) => x[k] === v).reduce((a: number, x: any) => a + x.n, 0)
   const b = o.backend ?? {}
   const warns: string[] = []
-  if (!o.env.gemini) warns.push('GEMINI_API_KEY não está configurada: a IA está indisponível.')
+  if (!o.env.gemini) warns.push('Falta a chave do Gemini: a IA está indisponível (junta-a em Configuração).')
   if (!o.env.backend || !o.env.lgpToken) warns.push('LGP_BACKEND_URL / LGP_TOKEN em falta: sem tradução para glosas.')
   if (b.translator_ready === false) warns.push('O tradutor PE2LGP ainda não está pronto (' + (b.error || b.stage || 'a arrancar') + ').')
   if (b.dictionary && o.lexicon.enabled > 0 && b.dictionary.from_panel === 0) warns.push('O backend ainda não leu o dicionário do painel: define DICT_URL no Render e carrega em "Sincronizar" no separador Dicionário.')
@@ -163,11 +164,12 @@ function SignsTab({ ctx, lockLang }: { ctx: Ctx; lockLang?: 'LGA' | 'LGP' }) {
   const open = (r: any) => go(async () => setEdit({ key: Date.now(), init: (await ctx.api('signs_get', { gloss: r.gloss, language: r.language })).sign }))
   return (
     <section>
+      <Convert ctx={ctx} lockLang={lockLang} onDone={load} />
       <div className="row wrap">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Procurar glosa" onKeyDown={(e) => { if (e.key === 'Enter') { setOff(0); load() } }} />
         {!lockLang && <Sel value={language} onChange={setLanguage} options={['LGA', 'LGP']} empty="Todas as línguas" />}
         <Sel value={status} onChange={setStatus} options={['validated', 'draft']} empty="Validados e rascunhos" />
-        <Sel value={source} onChange={setSource} options={['manual', 'rule', 'ai', 'import', 'copy']} empty="Qualquer origem" />
+        <Sel value={source} onChange={setSource} options={['manual', 'rule', 'ai', 'spell', 'import', 'copy']} empty="Qualquer origem" />
         <button className="pbtn" onClick={() => { setOff(0); load() }} disabled={busy}>Filtrar</button>
         <button className="pbtn ghost" onClick={() => setEdit({ key: Date.now(), init: lockLang ? { language: lockLang } : undefined })}>+ Novo sinal</button>
       </div>
@@ -193,6 +195,59 @@ function SignsTab({ ctx, lockLang }: { ctx: Ctx; lockLang?: 'LGA' | 'LGP' }) {
         <button className="pbtn ghost sm" disabled={off + 50 >= data.total} onClick={() => setOff(off + 50)}>→</button></div>
       {edit && <SignEditor key={edit.key} ctx={ctx} init={edit.init} lockLang={lockLang} onSaved={() => { load() }} />}
     </section>
+  )
+}
+
+// ----------------------------------------------------------------------------- Converter glosas existentes em SiGML (1 clique)
+function Convert({ ctx, lockLang, onDone }: { ctx: Ctx; lockLang?: 'LGA' | 'LGP'; onDone: () => void }) {
+  const [language, setLanguage] = useState<string>(lockLang ?? 'LGP')
+  const [src, setSrc] = useState({ lexicon: true, seed: true, missing: true })
+  const [paste, setPaste] = useState('')
+  const [ai, setAi] = useState(!!ctx.vocab.gemini), [spell, setSpell] = useState(false)
+  const [info, setInfo] = useState<any>(null)
+  const [running, setRunning] = useState(false), [err, setErr] = useState('')
+  const [log, setLog] = useState<{ gloss: string; status: string }[]>([])
+  const [saved, setSaved] = useState(0), [left, setLeft] = useState<number | null>(null)
+  const stop = useRef(false)
+  const count = () => ctx.api('gloss_sources', { language }).then(setInfo).catch((e) => setErr((e as Error).message))
+  useEffect(() => { count() }, [language])
+  const start = async () => {
+    stop.current = false; setRunning(true); setErr(''); setLog([]); setSaved(0); setLeft(null)
+    const skip: string[] = []; let n = 0; let all: { gloss: string; status: string }[] = []
+    try {
+      for (;;) {
+        const r = await ctx.api('gloss_convert', { language, sources: src, paste, ai, spell, skip })
+        for (const x of r.results) { skip.push(x.gloss); if (/^(guardada|juntada|soletrada)/.test(x.status)) n++ }
+        all = [...all, ...r.results]; setLog(all.slice(-40)); setSaved(n); setLeft(r.remaining)
+        if (r.stopped) { setErr(r.stopped); break }
+        if (stop.current || !r.remaining || !r.results.length) break
+      }
+    } catch (e) { setErr((e as Error).message) } finally { setRunning(false); onDone(); count() }
+  }
+  const box = (k: 'lexicon' | 'seed' | 'missing', label: string) => (
+    <label className="chk"><input type="checkbox" checked={src[k]} onChange={(e) => setSrc({ ...src, [k]: e.target.checked })} /> {label}{info ? ` (${info[k].pending} por converter de ${info[k].total})` : ''}</label>
+  )
+  return (
+    <details className="editor" open>
+      <summary><b>Converter glosas existentes em SiGML (1 clique)</b></summary>
+      <p className="hint">Pega nas glosas que o projeto já tem (dicionário do painel, dicionário LGP incluído e fila de palavras sem sinal) e cria o SiGML das que ainda não têm sinal. Palavras compostas juntam os sinais das partes; as restantes são descritas pela IA e montadas por regras. Tudo fica como <b>rascunho provisório</b> até alguém preencher “Validado por”. Podes parar e continuar mais tarde: só converte o que ainda falta.</p>
+      <div className="row wrap">
+        {!lockLang && <Sel value={language} onChange={setLanguage} options={['LGP', 'LGA']} />}
+        {box('lexicon', 'dicionário do painel')}{box('seed', 'dicionário LGP incluído')}{box('missing', 'fila sem sinal')}
+      </div>
+      <textarea rows={2} value={paste} onChange={(e) => setPaste(e.target.value)} placeholder="Opcional: cola mais glosas (uma por linha)" spellCheck={false} />
+      <div className="row wrap">
+        <label className="chk"><input type="checkbox" checked={ai} disabled={!ctx.vocab.gemini} onChange={(e) => setAi(e.target.checked)} /> usar IA (Gemini) quando as regras não chegam{ctx.vocab.gemini ? '' : ' — junta a chave em Configuração'}</label>
+        <label className="chk"><input type="checkbox" checked={spell} onChange={(e) => setSpell(e.target.checked)} /> soletrar com o alfabeto manual o que não der (rascunho)</label>
+      </div>
+      <div className="row wrap">
+        {!running ? <button className="pbtn" onClick={start} disabled={!src.lexicon && !src.seed && !src.missing && !paste.trim()}>Converter agora</button>
+          : <button className="pbtn danger" onClick={() => { stop.current = true }}>Parar</button>}
+        {(running || saved > 0 || left !== null) && <span className="hint">{running ? 'A converter… ' : ''}{saved} guardadas{left !== null ? ` · faltam ${left}` : ''}</span>}
+      </div>
+      {err && <p className="pmsg bad">{err}</p>}
+      {log.length > 0 && <p className="hint mono">{log.map((l) => `${l.gloss}: ${l.status}`).join(' · ')}</p>}
+    </details>
   )
 }
 
@@ -243,7 +298,7 @@ function SignEditor({ ctx, init, lockLang, onSaved }: { ctx: Ctx; init?: any; lo
         <div className="row wrap">
           <button className="pbtn" onClick={fromRules} disabled={busy || !gloss}>Gerar SiGML (regras, sem IA)</button>
           <input value={hint} onChange={(e) => setHint(e.target.value)} placeholder="Descrição para a IA (opcional): ex. 'mão em concha junto à boca'" />
-          <button className="pbtn" onClick={fromAi} disabled={busy || !gloss || !ctx.vocab.gemini} title={ctx.vocab.gemini ? '' : 'GEMINI_API_KEY em falta'}>Gerar com IA (Gemini)</button>
+          <button className="pbtn" onClick={fromAi} disabled={busy || !gloss || !ctx.vocab.gemini} title={ctx.vocab.gemini ? '' : 'junta a chave do Gemini em Configuração'}>Gerar com IA (Gemini)</button>
         </div>
       </details>
       <label>SiGML<textarea rows={8} value={sigml} onChange={(e) => setSigml(e.target.value)} placeholder="Cola aqui um SiGML (<sigml><hns_sign gloss=...>) ou gera acima." spellCheck={false} /></label>
@@ -439,14 +494,29 @@ function TestTab({ ctx }: { ctx: Ctx }) {
 function ConfigTab({ ctx }: { ctx: Ctx }) {
   const [s, setS] = useState<any>(null)
   const { busy, msg, go } = useAct()
-  const t = useAct()
-  useEffect(() => { go(async () => setS((await ctx.api('settings_get')).settings)) }, [])
+  const t = useAct(), k = useAct()
+  const [g, setG] = useState<any>(null), [key, setKey] = useState('')
+  useEffect(() => { go(async () => setS((await ctx.api('settings_get')).settings)); k.go(async () => setG(await ctx.api('gemini_status'))) }, [])
   if (!s) return <><p>A carregar…</p><Msg m={msg} /></>
   const up = (k: string, val: unknown) => setS({ ...s, [k]: val })
   const save = () => go(async () => setS((await ctx.api('settings_set', { patch: s })).settings), () => 'Definições guardadas (podem demorar até 20 s a chegar a todas as instâncias).')
   return (
     <section>
       <h2>Configuração</h2>
+      <div className="editor">
+        <h3>Chave do Gemini</h3>
+        <p className="hint">{g?.configured
+          ? `Chave ativa (${g.hint}), ${g.from === 'painel' ? 'guardada no painel' : 'vinda da variável GEMINI_API_KEY da Vercel'}. Modelo em uso: ${g.models?.[0] ?? '—'}${g.auto ? ' (automático: o Gemini flash mais recente que a Google oferece)' : ''}.`
+          : 'Ainda não há chave. Cria uma grátis em aistudio.google.com/apikey e cola-a aqui.'}</p>
+        <div className="row wrap">
+          <input type="password" value={key} onChange={(e) => setKey(e.target.value.trim())} placeholder="Cola a chave (AIza…)" autoComplete="off" />
+          <button className="pbtn" disabled={k.busy || !key} onClick={async () => { const r = await k.go(() => ctx.api('gemini_key_set', { key }), () => 'Chave validada pela Google e guardada.'); if (r) { setG(r); setKey(''); ctx.reload() } }}>Guardar chave</button>
+          <button className="pbtn ghost" disabled={k.busy || !g?.configured} onClick={async () => { const r = await k.go(() => ctx.api('gemini_status', { refresh: true }), (x: any) => `Modelo mais recente: ${x.models?.[0] ?? '—'}.`); if (r) setG(r) }}>Procurar modelo mais recente</button>
+          {g?.from === 'painel' && <button className="pbtn ghost danger" disabled={k.busy} onClick={async () => { if (!confirm('Remover a chave guardada no painel?')) return; const r = await k.go(() => ctx.api('gemini_key_clear'), () => 'Chave removida.'); if (r) { setG(r); ctx.reload() } }}>Remover chave</button>}
+        </div>
+        <Msg m={k.msg} />
+        <p className="hint">A chave guardada aqui fica cifrada na base de dados e nunca volta ao navegador. Se mudares o ADMIN_TOKEN, cola-a de novo. Com modelo vazio (abaixo) o painel pergunta à Google quais existem e usa sempre o mais recente.</p>
+      </div>
       <div className="editor">
         <h3>IA (Gemini)</h3>
         <label>Modo<select value={s.ai_mode} onChange={(e) => up('ai_mode', e.target.value)}>
@@ -457,11 +527,11 @@ function ConfigTab({ ctx }: { ctx: Ctx }) {
         <div className="row wrap">
           <label>Limite diário de chamadas<input type="number" min={0} max={5000} value={s.ai_daily_cap} onChange={(e) => up('ai_daily_cap', Number(e.target.value))} /></label>
           <label>Máx. por frase (tempo real)<input type="number" min={0} max={10} value={s.ai_per_request} onChange={(e) => up('ai_per_request', Number(e.target.value))} /></label>
-          <label>Modelo(s), separados por vírgula<input value={s.ai_model} onChange={(e) => up('ai_model', e.target.value)} placeholder="vazio = GEMINI_TEXT_MODEL / predefinidos" /></label>
+          <label>Modelo(s), separados por vírgula<input value={s.ai_model} onChange={(e) => up('ai_model', e.target.value)} placeholder="vazio = automático (o mais recente)" /></label>
         </div>
         <div className="row"><button className="pbtn ghost" disabled={t.busy} onClick={() => t.go(() => ctx.api('ai_test'), (r: any) => `Gemini respondeu em ${r.ms} ms (${r.models.join(', ')}).`)}>Testar Gemini</button></div>
         <Msg m={t.msg} />
-        <p className="hint">A chave fica só no servidor (GEMINI_API_KEY na Vercel). No modo “tempo real” a IA inventa uma forma plausível: nunca é um sinal validado, aparece sempre como provisório e fica guardada como rascunho para a rever.</p>
+        <p className="hint">No modo “tempo real” a IA inventa uma forma plausível: nunca é um sinal validado, aparece sempre como provisório e fica guardada como rascunho para a rever.</p>
       </div>
       <div className="editor">
         <h3>Sinais e palavras sem sinal</h3>

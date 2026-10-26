@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { parseModels, rankModels } from './gemini'
 import { gkey, gfold, letterKeys, baseGloss, isNumeric } from './gloss'
 import { validateSpec, specToSign, wrapSigml, checkSigml, splitSigns, injectNonmanual, DEFAULT_SPECS, defaultLetterSign } from './sigml'
 import { resolveGlosses, DEFAULT_SETTINGS, type Row } from './resolve'
@@ -102,5 +103,15 @@ describe('dicionário', () => {
     const c = parseLexicon('casa\nescola\ncasa\n')
     expect(c.rows.map((r) => r.gloss)).toEqual(['casa', 'escola'])
     expect(toTsv(c.rows)).toBe('casa\tcasa\tcasa\nescola\tescola\tescola\n')
+  })
+})
+
+describe('modelo Gemini mais recente', () => {
+  const names = ['models/gemini-2.5-flash', 'models/gemini-3.5-flash-preview-09', 'models/gemini-3.5-flash', 'models/gemini-3.1-flash-lite', 'models/gemini-3.5-flash-image',
+    'models/gemini-3.5-flash-live', 'models/gemini-3.8-pro', 'models/gemini-3.5-flash-tts', 'models/text-embedding-004', 'models/gemma-3-27b']
+  it('ignora imagem/voz/embeddings e ordena pela versão mais alta, estável primeiro', () => {
+    expect(rankModels(parseModels(names), 'flash')).toEqual(['gemini-3.5-flash', 'gemini-3.5-flash-preview-09', 'gemini-2.5-flash'])
+    expect(rankModels(parseModels(names), 'flash-lite')).toEqual(['gemini-3.1-flash-lite'])
+    expect(rankModels(parseModels(names), 'pro')).toEqual(['gemini-3.8-pro'])
   })
 })

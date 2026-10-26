@@ -1,9 +1,10 @@
 // POST /api/admin { action, ... }  — tudo o que o painel faz. Exige x-admin-token (ADMIN_TOKEN, mín. 12 caracteres).
-import { json, sameOrigin, isAdmin, db, init, getSettings, setSettings, logEvent, upsertSign, getRows, aiCallsToday } from './_lib/db.js'
-import { gkey, gfold, okGloss, ALPHABET_KEYS } from './_lib/gloss.js'
-import { VOCAB, DEFAULT_SPECS, validateSpec, specToSign, wrapSigml, checkSigml, splitSigns } from './_lib/sigml.js'
-import { aiSignSpec, aiSigml, aiDictionary } from './_lib/aisign.js'
-import { geminiConfigured, geminiJson, textModels } from './_lib/gemini.js'
+import { json, sameOrigin, isAdmin, db, init, getSettings, setSettings, logEvent, upsertSign, getRows, aiCallsToday, setSecret, delSecret } from './_lib/db.js'
+import { gkey, gfold, okGloss, isNumeric, letterKeys, ALPHABET_KEYS } from './_lib/gloss.js'
+import { SEED_GLOSSES } from './_lib/seed.js'
+import { VOCAB, DEFAULT_SPECS, validateSpec, specToSign, wrapSigml, checkSigml, splitSigns, defaultLetterSign } from './_lib/sigml.js'
+import { aiSignSpec, aiSignSpecs, aiSigml, aiDictionary } from './_lib/aisign.js'
+import { geminiConfigured, geminiKey, geminiJson, textModels, forgetGeminiKey } from './_lib/gemini.js'
 import { resolveGlosses } from './_lib/resolve.js'
 import { parseLexicon, toTsv } from './_lib/lexparse.js'
 declare const process: { env: Record<string, string | undefined> }
@@ -21,7 +22,7 @@ async function backend(path: string, init2: RequestInit = {}, ms = 55000) {
   return { ok: r.ok, status: r.status, data: d }
 }
 async function capCheck(n: number) {
-  need(geminiConfigured(), 'GEMINI_API_KEY não está configurada no servidor')
+  need(await geminiConfigured(), 'falta a chave do Gemini: junta-a em Configuração')
   const st = await getSettings()
   need((await aiCallsToday()) + n <= st.ai_daily_cap, `limite diário de IA atingido (${st.ai_daily_cap}); aumenta-o na Configuração`)
   return st
@@ -44,10 +45,19 @@ async function bulkUpsert(items: { g: string; s: string }[], language: 'LGA' | '
   return done
 }
 
+
+// glosas candidatas à conversão: normalizadas, válidas, únicas (por forma "dobrada")
+function candidates(xs: string[]): string[] {
+  const seen = new Set<string>(), out: string[] = []
+  for (const x of xs) { const g = gkey(String(x)); if (okGloss(g) && !seen.has(gfold(g))) { seen.add(gfold(g)); out.push(g) } }
+  return out
+}
+const haveSigns = async (language: 'LGA' | 'LGP') => new Set((await q(`SELECT gloss, gloss_fold FROM signs WHERE language = $1`, [language])).rows.map((r) => String(r.gloss_fold || gfold(r.gloss))))
+const lexGlosses = async (language: 'LGA' | 'LGP') => (await q(`SELECT DISTINCT gloss FROM lexicon WHERE enabled AND lang = $1`, [language])).rows.map((r) => r.gloss as string)
+
 const H: Record<string, (b: any) => Promise<unknown>> = {
   async vocab() {
-    const st = await getSettings()
-    return { vocab: VOCAB, defaults: Object.keys(DEFAULT_SPECS), alphabet: ALPHABET_KEYS, gemini: geminiConfigured(), models: textModels(st.ai_model) }
+    return { vocab: VOCAB, defaults: Object.keys(DEFAULT_SPECS), alphabet: ALPHABET_KEYS, gemini: await geminiConfigured() }
   },
 
   // ---------- monitorização ----------
@@ -67,7 +77,7 @@ const H: Record<string, (b: any) => Promise<unknown>> = {
     return {
       signs: signs.rows, lexicon: lex.rows[0], missing: miss.rows[0], events24h: ev.rows, recent: recent.rows, translateMs: lat.rows[0].ms,
       aiToday: ai, aiCap: st.ai_daily_cap, backend: health,
-      env: { database: true, gemini: geminiConfigured(), backend: !!backendUrl(), lgpToken: !!process.env.LGP_TOKEN },
+      env: { database: true, gemini: await geminiConfigured(), backend: !!backendUrl(), lgpToken: !!process.env.LGP_TOKEN },
     }
   },
   async events(b) {
@@ -110,7 +120,8 @@ const H: Record<string, (b: any) => Promise<unknown>> = {
   // ---------- sinais ----------
   async signs_list(b) {
     const w: string[] = [], p: unknown[] = []
-    const add = (cond: string, v: unknown) => { p.push(v); w.push(cond.replace('?', '$' + p.length)) }
+    // TODOS os "?" têm de ser trocados (antes só o 1.º: dava "syntax error at or near )" ao procurar)
+    const add = (cond: string, v: unknown) => { p.push(v); w.push(cond.split('?').join('$' + p.length)) }
     if (b.q) add(`(gloss ILIKE ? OR gloss_fold ILIKE ?)`, '%' + String(b.q).replace(/[%_]/g, '') + '%')
     if (b.language === 'LGA' || b.language === 'LGP') add(`language = ?`, b.language)
     if (b.status === 'validated') w.push(`validated_by <> ''`); else if (b.status === 'draft') w.push(`validated_by = ''`)
@@ -180,10 +191,10 @@ const H: Record<string, (b: any) => Promise<unknown>> = {
 
   // ---------- IA ----------
   async ai_test() {
-    need(geminiConfigured(), 'GEMINI_API_KEY não está configurada no servidor')
+    need(await geminiConfigured(), 'falta a chave do Gemini: junta-a em Configuração')
     const st = await getSettings(), t0 = Date.now()
     const r = await geminiJson('Responde só com JSON.', 'Devolve {"ok":true}', st.ai_model)
-    return { ok: r?.ok === true, ms: Date.now() - t0, models: textModels(st.ai_model) }
+    return { ok: r?.ok === true, ms: Date.now() - t0, models: await textModels(st.ai_model) }
   },
   async ai_sign(b) {
     const gloss = gkey(String(b.gloss || '')); need(okGloss(gloss), 'glosa inválida')
@@ -229,6 +240,84 @@ const H: Record<string, (b: any) => Promise<unknown>> = {
       inserted = r.rowCount ?? 0
     }
     return { entries, inserted }
+  },
+
+  // ---------- chave e modelo do Gemini (guardados no painel) ----------
+  async gemini_status(b) {
+    if (b.refresh) forgetGeminiKey()
+    const { key, from } = await geminiKey(), st = await getSettings()
+    return { configured: !!key, from, hint: key ? '••••' + key.slice(-4) : '', models: key ? await textModels(st.ai_model) : [], auto: !st.ai_model && !process.env.GEMINI_TEXT_MODEL }
+  },
+  async gemini_key_set(b) {
+    const key = String(b.key || '').trim()
+    need(/^[\w-]{20,200}$/.test(key), 'chave com formato estranho (começa normalmente por AIza e não tem espaços)')
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', { headers: { 'x-goog-api-key': key }, signal: AbortSignal.timeout(10000) }).catch(() => null)
+    need(r, 'não consegui falar com a Google para validar a chave')
+    need(r!.ok, `a Google recusou esta chave (${r!.status}). Cria outra em aistudio.google.com/apikey`)
+    need((process.env.ADMIN_TOKEN || '').length >= 12, 'ADMIN_TOKEN em falta no servidor')
+    await setSecret('gemini_key', key); forgetGeminiKey()
+    await logEvent('admin', { act: 'gemini_key_set' })
+    return H.gemini_status({})
+  },
+  async gemini_key_clear() { await delSecret('gemini_key'); forgetGeminiKey(); await logEvent('admin', { act: 'gemini_key_clear' }); return H.gemini_status({}) },
+
+  // ---------- converter glosas já existentes em SiGML (1 clique) ----------
+  async gloss_sources(b) {
+    const language = lang(b.language ?? 'LGP')
+    const have = await haveSigns(language)
+    const [lex, miss] = await Promise.all([lexGlosses(language), q(`SELECT gloss FROM missing`)])
+    const pend = (xs: string[]) => new Set(candidates(xs).filter((g) => !have.has(gfold(g)))).size
+    return {
+      lexicon: { total: candidates(lex).length, pending: pend(lex) },
+      seed: { total: candidates(SEED_GLOSSES).length, pending: pend(SEED_GLOSSES) },
+      missing: { total: candidates(miss.rows.map((r) => r.gloss)).length, pending: pend(miss.rows.map((r) => r.gloss)) },
+      signs: have.size,
+    }
+  },
+  async gloss_convert(b) {
+    const language = lang(b.language ?? 'LGP'), src = b.sources ?? {}
+    let pool: string[] = String(b.paste || '').split(/[\n,;]+/)
+    if (src.lexicon) pool = pool.concat(await lexGlosses(language))
+    if (src.seed) pool = pool.concat(SEED_GLOSSES)
+    if (src.missing) pool = pool.concat((await q(`SELECT gloss FROM missing`)).rows.map((r) => r.gloss))
+    const have = await haveSigns(language), skip = new Set((Array.isArray(b.skip) ? b.skip : []).map((g: unknown) => gkey(String(g))))
+    // palavras simples primeiro: assim as compostas já encontram as partes feitas
+    const pending = candidates(pool).filter((g) => !have.has(gfold(g)) && !skip.has(g)).sort((a, z) => Number(/[_-]/.test(a)) - Number(/[_-]/.test(z)) || a.localeCompare(z))
+    const results: { gloss: string; status: string }[] = []
+    const done = (gloss: string, status: string) => results.push({ gloss, status })
+    const save = async (gloss: string, sigml: string, source: string) => (await saveSign(gloss, language, sigml, { source, keep: true })) ? true : false
+    const lookup = async (keys: string[]) => new Map((await getRows(keys, keys.map(gfold))).filter((r) => splitSigns(r.sigml).length).sort((a, z) => Number(!!z.validated_by) - Number(!!a.validated_by)).map((r) => [gfold(r.gloss), r] as const).reverse())
+    const batch = pending.slice(0, 40), needAi: string[] = []
+    const letters = await lookup([...new Set(batch.flatMap(letterKeys))])
+    const spellXml = (g: string) => letterKeys(g).map((k) => { const r = letters.get(gfold(k)); return r ? splitSigns(r.sigml)[0]?.xml : defaultLetterSign(k) }).filter(Boolean) as string[]
+    const spelled = async (g: string) => { const x = spellXml(g); if (!x.length) { done(g, 'sem letras para soletrar'); return }; done(g, (await save(g, wrapSigml(x.join('')), 'spell')) ? 'soletrada (rascunho)' : 'ignorada'); }
+    for (const g of batch) {
+      if (isNumeric(g) || /^#/.test(g)) { done(g, 'já tratado por regra (números/letras)'); continue }
+      const parts = g.split(/[_-]/).filter(Boolean)
+      if (parts.length > 1) {   // composta: junta os sinais das partes se todas existirem
+        const rows = await lookup(parts), xs = parts.map((p) => rows.get(gfold(p))).map((r) => (r ? splitSigns(r.sigml).map((x) => x.xml) : []))
+        if (xs.every((x) => x.length)) { done(g, (await save(g, wrapSigml(xs.flat().join('')), 'rule')) ? 'juntada das partes (regras)' : 'ignorada'); continue }
+      }
+      if (b.ai) { if (needAi.length < 10) needAi.push(g); continue }
+      if (b.spell) { await spelled(g); continue }
+      done(g, 'sem regra (liga a IA ou a soletração)')
+    }
+    let stopped = ''
+    if (needAi.length) {
+      try {
+        const st = await capCheck(1)
+        const specs = await aiSignSpecs(needAi.map((g) => g.replace(/[_-]/g, ' ')), { language, model: st.ai_model })
+        await logEvent('ai_sign', { via: 'conversao', glosses: needAi.length })
+        for (const g of needAi) {
+          const r = specs.get(gkey(g.replace(/[_-]/g, ' '))) ?? specs.get(g)
+          if (r?.mode === 'sign') { const ok = await save(g, aiSigml(g, r.spec), 'ai'); if (ok) await q(`DELETE FROM missing WHERE gloss = $1`, [g]); done(g, ok ? 'guardada (IA, rascunho)' : 'ignorada') }
+          else if (r?.mode === 'spell' && b.spell) await spelled(g)
+          else done(g, r?.mode === 'spell' ? 'a IA diz que se soletra' : 'a IA não respondeu a esta glosa')
+        }
+      } catch (e) { stopped = (e as Error).message }
+    }
+    const handled = new Set(results.map((r) => r.gloss))
+    return { results, remaining: pending.length - handled.size, stopped }
   },
 
   // ---------- dicionário ----------

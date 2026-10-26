@@ -1,6 +1,6 @@
 // Ligação ao Postgres (Aiven), esquema, definições, eventos e utilitários partilhados pelas funções da Vercel.
 import pg from 'pg'
-import { timingSafeEqual } from 'node:crypto'
+import { timingSafeEqual, createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto'
 import { gfold } from './gloss.js'
 import { DEFAULT_SETTINGS, type Settings, type Row } from './resolve.js'
 declare const process: { env: Record<string, string | undefined> }
@@ -57,6 +57,7 @@ export const init = () => (ready ??= (async () => {
   await q(`CREATE TABLE IF NOT EXISTS settings (key text PRIMARY KEY, value jsonb NOT NULL)`)
   await q(`CREATE TABLE IF NOT EXISTS events (id bigserial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(), kind text NOT NULL, detail jsonb NOT NULL DEFAULT '{}')`)
   await q(`CREATE INDEX IF NOT EXISTS events_ts_idx ON events (ts DESC)`)
+  await q(`CREATE TABLE IF NOT EXISTS secrets (key text PRIMARY KEY, value text NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())`)
   await q(`CREATE TABLE IF NOT EXISTS missing (gloss text PRIMARY KEY, hits int NOT NULL DEFAULT 1, last_seen timestamptz NOT NULL DEFAULT now(), sample text NOT NULL DEFAULT '')`)
   // migração: sinais antigos ainda sem chave "dobrada"
   const old = await q(`SELECT gloss, language FROM signs WHERE gloss_fold IS NULL LIMIT 5000`)
@@ -121,3 +122,25 @@ export async function upsertSign(s: { gloss: string; language: 'LGA' | 'LGP'; si
     [s.gloss, gfold(s.gloss), s.language, s.sigml, s.validatedBy ?? '', s.credit ?? '', s.source ?? 'manual'])
   return (r.rowCount ?? 0) > 0
 }
+
+// ---- segredos (ex.: chave do Gemini) cifrados com AES-256-GCM; a chave de cifra deriva do ADMIN_TOKEN ----
+// Quem só tiver a base de dados não consegue ler a chave. Se mudares o ADMIN_TOKEN, volta a colar a chave do Gemini.
+const kdf = () => scryptSync(process.env.ADMIN_TOKEN || '', 'liricz-secrets-v1', 32)
+export async function setSecret(name: string, value: string) {
+  await init()
+  const iv = randomBytes(12), c = createCipheriv('aes-256-gcm', kdf(), iv)
+  const enc = Buffer.concat([c.update(value, 'utf8'), c.final()])
+  const blob = [iv, c.getAuthTag(), enc].map((b) => b.toString('base64')).join('.')
+  await db().query(`INSERT INTO secrets (key, value, updated_at) VALUES ($1,$2,now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [name, blob])
+}
+export async function getSecret(name: string): Promise<string | null> {
+  await init()
+  const r = await db().query(`SELECT value FROM secrets WHERE key = $1`, [name])
+  if (!r.rows[0]) return null
+  try {
+    const [iv, tag, enc] = String(r.rows[0].value).split('.').map((x) => Buffer.from(x, 'base64'))
+    const d = createDecipheriv('aes-256-gcm', kdf(), iv); d.setAuthTag(tag)
+    return Buffer.concat([d.update(enc), d.final()]).toString('utf8')
+  } catch { return null } // ADMIN_TOKEN mudou: a chave guardada já não se consegue ler
+}
+export async function delSecret(name: string) { await init(); await db().query(`DELETE FROM secrets WHERE key = $1`, [name]) }

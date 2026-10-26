@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   try {
     const st = await getSettings()
     let budget = 0
-    if (st.ai_mode === 'realtime' && geminiConfigured()) budget = Math.max(0, st.ai_daily_cap - (await aiCallsToday()))
+    if (st.ai_mode === 'realtime' && (await geminiConfigured())) budget = Math.max(0, st.ai_daily_cap - (await aiCallsToday()))
     const deps: Deps = {
       getRows,
       ai: budget > 0 ? async (g) => {
