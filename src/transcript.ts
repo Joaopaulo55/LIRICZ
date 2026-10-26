@@ -1,5 +1,6 @@
 // Armazém de legendas fora do React: a voz atualiza só o componente das legendas, não a app inteira.
-export interface Item { id: number; text: string; final: boolean; lgp?: string[] }
+import type { LgpExtra } from './lgp'
+export interface Item { id: number; text: string; final: boolean; lgp?: string[]; lgpExtra?: LgpExtra }
 let items: Item[] = []
 let live = -1
 let nid = 0
@@ -25,6 +26,6 @@ export const transcript = {
     return id
   },
   replace(id: number, text: string) { if (items.some((i) => i.id === id)) { items = items.map((i) => (i.id === id ? { ...i, text } : i)); emit() } },
-  attach(id: number, lgp: string[]) { if (items.some((i) => i.id === id)) { items = items.map((i) => (i.id === id ? { ...i, lgp } : i)); emit() } },
+  attach(id: number, lgp: string[], lgpExtra?: LgpExtra) { if (items.some((i) => i.id === id)) { items = items.map((i) => (i.id === id ? { ...i, lgp, lgpExtra } : i)); emit() } },
   clear() { items = []; live = -1; emit() },
 }

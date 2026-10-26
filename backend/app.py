@@ -65,12 +65,36 @@ def health():
             "memory_mb": _mem_mb(), **(adapter.info() if state["ready"] else {"stage": adapter.stage})}
 
 
-@app.post("/translate")
-async def translate(req: Req, x_liricz_token: str = Header(default="")):
+def _auth(x_liricz_token: str) -> None:
     if not TOKEN:
         raise HTTPException(503, "LGP_TOKEN não está configurado no servidor.")
     if not hmac.compare_digest(x_liricz_token.encode(), TOKEN.encode()):
         raise HTTPException(401, "Token inválido.")
+
+
+@app.post("/reload-dictionary")
+async def reload_dictionary(x_liricz_token: str = Header(default="")):
+    """O painel chama isto depois de alterar o dicionário: o backend volta a lê-lo sem reiniciar."""
+    _auth(x_liricz_token)
+    if not state["ready"]:
+        raise HTTPException(503, state["error"] or "O tradutor ainda está a carregar.")
+    try:
+        await asyncio.wait_for(gate.acquire(), timeout=QUEUE_WAIT)
+    except asyncio.TimeoutError:
+        raise HTTPException(503, "Servidor ocupado. Tenta de novo.")
+    try:
+        info = await run_in_threadpool(adapter.reload_dictionary)
+    except Exception as e:
+        raise HTTPException(500, f"Falha ao recarregar o dicionário: {type(e).__name__}: {e}")
+    finally:
+        gate.release()
+    cache.clear()  # as traduções guardadas já não valem com o dicionário novo
+    return {"ok": True, **info}
+
+
+@app.post("/translate")
+async def translate(req: Req, x_liricz_token: str = Header(default="")):
+    _auth(x_liricz_token)
     text = req.text.strip()
     if not text:
         raise HTTPException(400, "Texto vazio.")
@@ -100,6 +124,6 @@ async def translate(req: Req, x_liricz_token: str = Header(default="")):
     else:
         cache.move_to_end(key)
 
-    return {"input": text, "glosses": out["glosses"], "extra": out["extra"],
+    return {"input": text, "glosses": out["glosses"], "extra": out["extra"], "fallback": bool(out["extra"].get("fallback")),
             "system": "PE2LGP", "language": "LGP (Portugal)",
             "disclaimer": "Tradução para Língua Gestual Portuguesa, não para Língua Gestual Angolana."}

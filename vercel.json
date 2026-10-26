@@ -25,6 +25,15 @@
     },
     "api/signs.ts": {
       "maxDuration": 15
+    },
+    "api/admin.ts": {
+      "maxDuration": 60
+    },
+    "api/resolve.ts": {
+      "maxDuration": 30
+    },
+    "api/lexicon.ts": {
+      "maxDuration": 15
     }
   }
 }

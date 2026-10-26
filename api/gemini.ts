@@ -1,3 +1,4 @@
+import { logEvent } from './_lib/db.js'
 // Função serverless do Vercel. A chave GEMINI_API_KEY fica só no servidor (secret).
 declare const process: { env: Record<string, string | undefined> } // evita o erro TS2591 sem precisar de @types/node
 // Os modelos podem ser uma lista separada por vírgulas (o 1.º é o preferido; os outros entram se o 1.º falhar com 429/503/404...).
@@ -43,14 +44,16 @@ export async function POST(req: Request) {
         const r = await call(m, body(true))
         return r.status === 400 ? call(m, body(false)) : r // se o parâmetro de raciocínio não for aceite
       })
-      if (!res.r) return json({ error: `Gemini ${res.status}` }, 502)
+      if (!res.r) { await logEvent('gemini_fail', { mode, status: res.status }); return json({ error: `Gemini ${res.status}` }, 502) }
+      await logEvent('gemini_fix', {})
       const d: any = await res.r.json()
       return json({ text: d.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '' })
     }
     const voice = VOICES.includes(b.voice) ? b.voice : 'Kore'
     const body = { contents: [{ parts: [{ text: `Diz de forma natural e calorosa, em português: ${text}` }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } }
     const res = await run(TTS_MODELS, (m) => call(m, body))
-    if (!res.r) return json({ error: `Gemini ${res.status}` }, 502)
+    if (!res.r) { await logEvent('gemini_fail', { mode, status: res.status }); return json({ error: `Gemini ${res.status}` }, 502) }
+    await logEvent('gemini_tts', {})
     const d: any = await res.r.json()
     const audio = d.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData)?.inlineData?.data
     return audio ? json({ audio, rate: 24000 }) : json({ error: 'sem áudio' }, 502)

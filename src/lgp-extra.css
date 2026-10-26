@@ -1,0 +1,4 @@
+/* Chips das glosas por tipo de resolução (sinal / soletrado / número / provisório). */
+.gl.sp, .gl.nu { border-style: dashed; opacity: .9 }
+.gl.pv { box-shadow: inset 0 -3px 0 #e0a800 }
+.gl.ai { box-shadow: inset 0 -3px 0 #8b5cf6 }

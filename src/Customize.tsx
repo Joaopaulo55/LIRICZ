@@ -3,7 +3,6 @@ import { Words } from './Captions'
 import { aiFix, sayText } from './ai'
 import { ttsSupported, listVoices } from './tts'
 import { translateLgp } from './lgp'
-import { SignAdmin } from './SignAdmin'
 import { norm, DEFAULT_EMOJI } from './emoji'
 import { Settings, DEFAULTS, FONTS, PROFILES, ANIMS, loadCustomProfiles, saveCustomProfiles, clearAll } from './settings'
 
@@ -116,8 +115,8 @@ export function Customize({ s, up, setS }: { s: Settings; up: Up; setS: (s: Sett
             if (confirm('Ligar a tradução para glosas de LGP?\n\n• O texto de cada frase confirmada (sem áudio) é enviado ao servidor do LIRICz para ser convertido.\n• É Língua Gestual Portuguesa (Portugal), não Língua Gestual Angolana.\n• Passa a aparecer um avatar a gestualizar e as legendas de texto ficam escondidas (podes voltar a mostrá-las nesta secção).')) up({ lgpOn: true })
           }}>Mostrar o avatar de língua gestual (LGP) em vez das legendas</Check>
           <Check checked={s.lgpCaptions} onChange={(v) => up({ lgpCaptions: v })}>Mostrar também as legendas de texto com o avatar</Check>
-          <p className="hint-l">Desligado por defeito. O servidor converte a frase em glosas (a frase na ordem e nas palavras da LGP) e o avatar 3D gestualiza as glosas para as quais existe um sinal validado guardado; as outras aparecem só como texto. É uma tradução automática de português europeu para LGP de Portugal e pode não corresponder à Língua Gestual Angolana. O servidor gratuito adormece quando está parado: a primeira frase pode demorar cerca de um minuto.</p>
-          <SignAdmin />
+          <p className="hint-l">Desligado por defeito. O servidor converte a frase em glosas (a frase na ordem e nas palavras da LGP) e o avatar 3D gestualiza as glosas para as quais existe um sinal guardado; as sem sinal são soletradas com o alfabeto manual (e o painel pode gerar sinais provisórios). É uma tradução automática de português europeu para LGP de Portugal e pode não corresponder à Língua Gestual Angolana. O servidor gratuito adormece quando está parado: a primeira frase pode demorar cerca de um minuto.</p>
+          <p className="hint-l">Sinais, dicionário, IA (Gemini) e monitorização: <a href="#painel">abrir o painel do LIRICz</a> (precisa do ADMIN_TOKEN).</p>
           <button className="btn ghost" onClick={async () => { setMsg('A testar… (se o servidor estiver a dormir, pode demorar até 1 minuto)'); try { const r = await translateLgp('Qual é o teu nome?', undefined, 6); setMsg('Resultado: ' + r.glosses.join(' ')) } catch (e) { setMsg('Falhou: ' + (e as Error).message) } }}>Testar LGP</button>
           {msg && <p className="hint-l">{msg}</p>}
         </>}

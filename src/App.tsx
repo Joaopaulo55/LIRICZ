@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createWebSpeechEngine, SpeechEngine, SpeechError } from './speech'
 import { stopSpeaking, ttsSupported } from './tts'
 import { aiFix, sayText, stopAi } from './ai'
-import { translateLgp, wakeLgp } from './lgp'
+import { translateLgp, wakeLgp, localFallbackGlosses } from './lgp'
 import { Settings, FONTS, loadSettings, saveSettings } from './settings'
 import { Captions, Words } from './Captions'
 import { LgpStage } from './LgpStage'
@@ -54,7 +54,9 @@ export default function App() {
         const id = transcript.final(t)
         const st = sRef.current
         if (st.aiFix) aiFix(t, st.geminiKey).then((r) => { if (r && r !== t) transcript.replace(id, r) }).catch(() => {})
-        if (st.lgpOn) translateLgp(t).then((r) => { if (r.glosses?.length) transcript.attach(id, r.glosses) }).catch(() => {})
+        if (st.lgpOn) translateLgp(t)
+          .then((r) => { if (r.glosses?.length) transcript.attach(id, r.glosses, { ...r.extra, fallback: !!(r.fallback || r.extra?.fallback) }) })
+          .catch(() => { const g = localFallbackGlosses(t); if (g.length) transcript.attach(id, g, { fallback: true }) }) // backend em baixo: palavra a palavra
       },
       onError: (k, d) => setError(k === 'other' ? d || errorText.other : errorText[k]),
       onStateChange: setListening,

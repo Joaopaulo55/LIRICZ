@@ -23,6 +23,7 @@ import sys
 import threading
 import time
 import unicodedata
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(os.getenv("PE2LGP_DIR") or Path(__file__).parent / "pe2lgp").resolve()
@@ -38,9 +39,17 @@ LITE = os.getenv("LGP_LITE", "1") != "0"
 # e pede as dependências sintáticas ao outro serviço. Sem NLP_URL, usa o spaCy local como antes.
 NLP_URL = os.getenv("NLP_URL", "").strip().rstrip("/")
 TOKEN = os.getenv("LGP_TOKEN", "")
+# Dicionário editável no painel do LIRICz: o backend junta-o ao dicionario.csv incluído (ver _sync_dictionary).
+# Ex.: DICT_URL=https://o-teu-site.vercel.app/api/lexicon  (usa o mesmo LGP_TOKEN)
+DICT_URL = os.getenv("DICT_URL", "").strip()
+# Se o PE2LGP não conseguir traduzir a frase, devolve glosas palavra-a-palavra em vez de erro 422 (LGP_FALLBACK=0 desliga).
+FALLBACK = os.getenv("LGP_FALLBACK", "1") != "0"
 
 _lock = threading.Lock()  # o PE2LGP usa estado global e cwd: um pedido de cada vez
 _ctx: dict = {}
+_dict_info: dict = {}
+_base_rows: list | None = None  # linhas do dicionario.csv original (antes de juntar o do painel)
+_lex_cache: tuple | None = None  # (id da lista, mapa palavra->glosa) para o fallback
 warnings: list[str] = []  # mostrado em /health
 stage = "a iniciar"  # fase do arranque, mostrada em /health (se o processo morrer, a última fase nos logs diz onde)
 
@@ -193,6 +202,91 @@ def _lite_freeling(tradutor) -> None:
     tradutor.load_freeling = lite_load  # o tradutor.py importou o nome com "from freeling import ..."
 
 
+# --------------------------------------------------------------------------- dicionário do painel
+_DICT_PATH = REGRAS / "Dicionario" / "dicionario.csv"
+_REGEX_CHARS = re.compile(r"[\[\]()*+?|\\^${}.]")  # o PE2LGP mete o lema numa regex sem a escapar
+
+
+def _sync_dictionary() -> dict:
+    """Reescreve dicionario.csv = original + entradas do painel (DICT_URL). Se o painel não responder, fica o original."""
+    global _base_rows
+    if _base_rows is None:
+        _base_rows = [l for l in _DICT_PATH.read_text(encoding="utf-8").splitlines() if l.strip()]
+    rows, added, err = list(_base_rows), 0, None
+    if DICT_URL and TOKEN:
+        try:
+            url = DICT_URL + ("&" if "?" in DICT_URL else "?") + "format=tsv"
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"x-liricz-token": TOKEN}), timeout=25) as r:
+                remote = r.read().decode("utf-8")
+            seen = set(rows)
+            for line in remote.splitlines():
+                parts = [x.strip().lower() for x in line.split("\t")]
+                if len(parts) != 3 or not all(parts) or _REGEX_CHARS.search(parts[0]) or _REGEX_CHARS.search(parts[1]):
+                    continue
+                row = "\t".join(parts)
+                if row not in seen:
+                    seen.add(row)
+                    rows.append(row)
+                    added += 1
+        except Exception as e:  # noqa: BLE001  (painel em baixo: continua com o dicionário original)
+            err = f"{type(e).__name__}: {e}"
+    _DICT_PATH.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    _dict_info.update(base=len(_base_rows), from_panel=added, total=len(rows), error=err, source=DICT_URL or "só o incluído")
+    return dict(_dict_info)
+
+
+def reload_dictionary() -> dict:
+    """Volta a ler o dicionário do painel e recarrega as tabelas do PE2LGP, sem reiniciar o servidor."""
+    global _lex_cache
+    with _lock:
+        info = _sync_dictionary()
+        if Path.cwd() != TRAD:
+            os.chdir(TRAD)
+        _ctx["palavras_glosas"], _ctx["freq_dic"] = _ctx["tradutor"].freq_dicionario()
+        _lex_cache = None
+        info["entries"] = len(_ctx["palavras_glosas"])
+    return info
+
+
+# --------------------------------------------------------------------------- fallback palavra-a-palavra
+_STOP = {"o", "a", "os", "as", "um", "uma", "uns", "umas", "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas",
+         "ao", "aos", "à", "às", "pelo", "pela", "pelos", "pelas", "é", "são", "foi", "era", "ser", "estar", "está", "estão"}
+
+
+def _lexicon() -> dict:
+    global _lex_cache
+    pg = _ctx.get("palavras_glosas") or []
+    if _lex_cache is None or _lex_cache[0] != id(pg):
+        m: dict = {}
+        for phrase, lemma, gloss in pg:
+            m.setdefault(phrase, gloss)
+            m.setdefault(lemma, gloss)
+        _lex_cache = (id(pg), m)
+    return _lex_cache[1]
+
+
+def fallback(text: str, reason: str = "") -> dict:
+    """Quando o PE2LGP falha: glosas palavra-a-palavra (sem reordenar a frase). Palavras sem entrada ficam como estão
+    e o LIRICz soletra-as ou usa a IA. É menos fiel à gramática da LGP, mas o avatar nunca fica parado."""
+    lex = _lexicon()
+    toks = re.findall(r"\d+(?:[.,]\d+)?|[^\W\d_]+(?:-[^\W\d_]+)*", unicodedata.normalize("NFC", text).lower())
+    glosses = [str(lex.get(w) or w).upper().replace(" ", "_") for w in toks if w not in _STOP]
+    if not glosses:
+        raise TranslationError("Sem palavras para traduzir.")
+    n = len(glosses)
+    return {
+        "glosses": glosses,
+        "extra": {"visemes": [], "visemes_aligned": False, "compound_gestures": [False] * n, "pauses": [None] * (n - 1) + ["frase"],
+                  "conditional": [False] * n, "facial_expressions": [], "compounds": _compounds(), "fallback": True, "reason": reason[:160]},
+    }
+
+
+def _compounds() -> dict:
+    gc = _ctx.get("gestos_compostos") or {}
+    gc = gc.get("gestos_compostos", gc) if isinstance(gc, dict) else {}
+    return {str(k).upper(): [str(x).upper() for x in v] for k, v in gc.items() if isinstance(v, (list, tuple))}
+
+
 def load() -> None:
     global stage
     for p in (TRAD / "tradutor.py", REGRAS / "freeling.py"):
@@ -235,6 +329,11 @@ def load() -> None:
         warnings.append("Modo leve: sem deteção de multipalavras e nomes próprios (LGP_LITE=0 para desligar).")
     stage = "a carregar FreeLing"
     _log("a carregar FreeLing (modo leve)" if LITE else "a carregar FreeLing (completo)")
+    try:
+        _sync_dictionary()  # junta o dicionário do painel ao original ANTES de o PE2LGP o ler
+        _log(f"dicionário: {_dict_info.get('total')} linhas ({_dict_info.get('from_panel')} do painel)")
+    except Exception as e:  # noqa: BLE001
+        warnings.append(f"Dicionário do painel não carregado ({type(e).__name__}: {e}).")
     result = tradutor.tradutor_main()
     _trim()
     _log("FreeLing + dicionário carregados")
@@ -272,7 +371,8 @@ def load() -> None:
 
 
 def info() -> dict:
-    return {"visemes": _ctx.get("visemes", False), "warnings": list(warnings), "lite": LITE, "nlp": NLP_URL or "local", "stage": stage}
+    return {"visemes": _ctx.get("visemes", False), "warnings": list(warnings), "lite": LITE, "nlp": NLP_URL or "local", "stage": stage,
+            "dictionary": dict(_dict_info), "fallback": FALLBACK}
 
 
 # --------------------------------------------------------------------------- tradução
@@ -337,6 +437,7 @@ def shape(raw: dict) -> dict:
             "pauses": pauses,
             "conditional": [_truthy(v) for v in raw.get("adv_cond", [])],
             "facial_expressions": facial,
+            "compounds": _compounds(),
         },
     }
 
@@ -350,11 +451,15 @@ def translate(text: str) -> dict:
     with _lock:
         try:
             raw = _run(clean)
-        except TranslationError:
+        except TranslationError as e:
+            if FALLBACK:
+                return fallback(clean, str(e))
             raise
         except Exception as e:  # noqa: BLE001  (IndexError/ValueError/KeyError vindos das regras do PE2LGP)
             if DEBUG:
                 import traceback
                 traceback.print_exc()
+            if FALLBACK:
+                return fallback(clean, f"{type(e).__name__}: {e}")
             raise TranslationError(f"{type(e).__name__}: {e}") from e
     return shape(raw)
